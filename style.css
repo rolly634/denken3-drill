@@ -185,7 +185,7 @@ li:first-child > .qrow { border-top: 0; }
 .blank { margin-top: 16px; }
 .blank-h { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-weight: 700; font-size: 15px; }
 .blank-h .lbl { padding: 0 10px; border-radius: 6px; background: var(--slot); color: var(--warn); }
-.blank-h .res { margin-left: auto; font-size: 13px; }
+.blank-h .res { margin-left: auto; font-size: 13px; white-space: nowrap; flex: none; }
 .blank-h .res.ok { color: var(--ok); }
 .blank-h .res.ng { color: var(--ng); }
 .blank .prompt { margin: -2px 0 8px; font-size: 15px; color: var(--ink-2); }
