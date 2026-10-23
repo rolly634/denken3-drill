@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -432,7 +432,7 @@ function viewPlay() {
   const blanksHTML = q.blanks.map((b, bi) => {
     const order = c.orders[bi];
     const longest = Math.max(...b.choices.map((t) => t.length));
-    const cols2 = !b.choices.some((t) => t.includes('$')) && longest <= 6 && b.choices.length === 4;
+    const cols2 = !b.choices.some((t) => t.includes('$') || isSvg(t)) && ((b.choices.length === 4 && longest <= 6) || (b.choices.length === 2 && longest <= 12));
     let head = '';
     if (multi || b.prompt) {
       const lab = labels[bi];
