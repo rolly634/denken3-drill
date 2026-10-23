@@ -61,6 +61,35 @@ Android の Chrome で開き、メニューの「ホーム画面に追加」で�
 | `blanks[].answer` | 正解の選択肢の位置（0 始まり） |
 | `explanation` | 解説 |
 
+### 図（SVG）
+
+問題文・解説・選択肢に図を入れられます。図は SVG 文字列で書きます。
+
+```json
+{
+  "figures": [{ "svg": "<svg viewBox=\"0 0 340 232\" ...>…</svg>", "caption": "任意の説明（$...$ 可）" }],
+  "explanationFigures": [{ "svg": "<svg …>…</svg>" }],
+  "blanks": [{ "choices": ["<svg …>…</svg>", "…", "…", "…"], "answer": 0 }]
+}
+```
+
+- `figures` は問題文の下、`explanationFigures` は解説の下に表示。選択肢の文字列が `<svg` で始まれば選択肢も図として表示。
+- タップで全画面に拡大。
+- `viewBox` を必ず指定（幅・高さは画面に合わせて自動）。
+- ダークモードに追従させるため、色は直接指定せず次の決まりで描く：
+
+| 用途 | 書き方 |
+|---|---|
+| 線・文字 | `stroke="currentColor"`（ルートに指定）／文字は自動で同色 |
+| 背景色で塗る（抵抗の箱など） | `class="bg"` |
+| 淡い塗り（鉄心など） | `class="soft"` |
+| 強調色（巻線など） | 線は `class="accent"`、塗りは `class="accent-fill"` |
+| 線色で塗る（矢じり・接続点） | `class="ink-fill"` |
+| 変数（斜体） | `<text class="v">` |
+| 日本語 | `<text class="ja">` |
+
+- `<script>`・`on…` 属性・外部 URL・`<style>` は取り込み時に除去されます。矢印は `<marker>` ではなく多角形で描いてください（ページ内で ID が衝突するため）。
+
 ## 開発メモ
 
 - 依存なしの素の HTML / CSS / JS。数式表示に KaTeX（`vendor/katex`）を同梱。

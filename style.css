@@ -182,6 +182,33 @@ li:first-child > .qrow { border-top: 0; }
 .slot.ok { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 40%, transparent); color: var(--ok); }
 .slot.ng { background: var(--ng-soft); border-color: color-mix(in srgb, var(--ng) 40%, transparent); color: var(--ng); }
 
+/* ---------- figures (SVG) ----------
+   図の描画ルール: 線は currentColor、背景で塗りつぶす部分は class="bg"、
+   淡い塗りは class="soft"、強調は class="accent"（線）/"accent-fill"（塗り）。
+   文字: 変数は class="v"（斜体）、日本語は class="ja"。 */
+.figure { margin: 14px 0 2px; padding: 10px 8px; border-radius: 12px; background: var(--bg); text-align: center; cursor: zoom-in; }
+.figure figcaption { font-size: 13px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+.fig-svg { display: block; width: 100%; max-width: 440px; height: auto; margin: 0 auto; color: var(--ink); overflow: visible; }
+.fig-svg text { fill: currentColor; stroke: none; font-family: KaTeX_Main, "Times New Roman", serif; font-size: 16px; }
+.fig-svg text.v, .fig-svg tspan.v { font-family: KaTeX_Math, "Times New Roman", serif; font-style: italic; }
+.fig-svg text.ja, .fig-svg tspan.ja { font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 13px; font-style: normal; }
+.fig-svg .bg { fill: var(--surface); }
+.fig-svg .soft { fill: var(--surface-2); }
+.fig-svg .accent { stroke: var(--accent); }
+.fig-svg .accent-fill { fill: var(--accent); stroke: none; }
+.fig-svg text.accent-fill, .fig-svg tspan.accent-fill { fill: var(--accent); }
+.fig-svg .ink-fill { fill: currentColor; stroke: none; }
+.explain .figure { background: var(--surface-2); }
+.choice-fig { display: block; }
+.choice-fig .fig-svg { max-width: 220px; max-height: 140px; margin: 0; }
+.zoom-ov {
+  position: fixed; inset: 0; z-index: 30; overflow: auto; background: var(--surface);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 12px; cursor: zoom-out;
+}
+.zoom-inner { width: 100%; max-width: 900px; }
+.zoom-inner .fig-svg { max-width: none; width: 100%; }
+.zoom-hint { font-size: 12px; color: var(--ink-3); }
+
 .blank { margin-top: 16px; }
 .blank-h { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-weight: 700; font-size: 15px; }
 .blank-h .lbl { padding: 0 10px; border-radius: 6px; background: var(--slot); color: var(--warn); }

@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -107,6 +107,75 @@ function typeset(root) {
       strict: 'ignore',
     });
   } catch (e) { /* 数式の表示に失敗しても本文は読めるようにする */ }
+}
+
+/* ---------------- figures (SVG) ----------------
+   問題データの図は SVG 文字列で受け取り、危険な要素・属性を取り除いてから表示する。 */
+const SVG_BLOCK = new Set(['script', 'foreignobject', 'iframe', 'object', 'embed', 'audio', 'video', 'style',
+  'animate', 'set', 'animatemotion', 'animatetransform', 'handler', 'listener']);
+const svgCache = new Map();
+const isSvg = (s) => typeof s === 'string' && /^\s*<svg[\s>]/i.test(s);
+function sanitizeSvg(src) {
+  if (svgCache.has(src)) return svgCache.get(src);
+  let out = '';
+  try {
+    const doc = new DOMParser().parseFromString(String(src), 'image/svg+xml');
+    const root = doc.documentElement;
+    if (root && root.nodeName.toLowerCase() === 'svg' && !doc.getElementsByTagName('parsererror').length) {
+      const walk = (el) => {
+        for (const ch of [...el.children]) {
+          if (SVG_BLOCK.has(ch.nodeName.toLowerCase())) { ch.remove(); continue; }
+          walk(ch);
+        }
+        for (const a of [...el.attributes]) {
+          const n = a.name.toLowerCase();
+          const v = a.value.trim().toLowerCase();
+          if (n.startsWith('on')) el.removeAttribute(a.name);
+          else if ((n === 'href' || n.endsWith(':href')) && !(v.startsWith('#') || v.startsWith('data:image/png') || v.startsWith('data:image/jpeg'))) el.removeAttribute(a.name);
+          else if (/url\s*\(\s*['"]?(?!#)|javascript:|expression\s*\(/.test(v)) el.removeAttribute(a.name);
+        }
+      };
+      walk(root);
+      const w = parseFloat(root.getAttribute('width'));
+      const h = parseFloat(root.getAttribute('height'));
+      if (!root.getAttribute('viewBox') && w && h) root.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      root.removeAttribute('width');
+      root.removeAttribute('height');
+      root.setAttribute('class', `fig-svg ${root.getAttribute('class') || ''}`.trim());
+      root.setAttribute('role', 'img');
+      out = new XMLSerializer().serializeToString(root);
+    }
+  } catch (e) { out = ''; }
+  svgCache.set(src, out);
+  return out;
+}
+function normFigures(v) {
+  if (!v) return [];
+  const list = Array.isArray(v) ? v : [v];
+  return list.map((f) => (typeof f === 'string' ? { svg: f } : f))
+    .filter((f) => f && isSvg(f.svg))
+    .map((f) => ({ svg: String(f.svg), caption: f.caption ? String(f.caption) : undefined }));
+}
+function figuresHTML(list) {
+  return normFigures(list).map((f) => {
+    const svg = sanitizeSvg(f.svg);
+    if (!svg) return '';
+    return `<figure class="figure" data-act="zoom" tabindex="0" aria-label="図（タップで拡大）">${svg}${f.caption ? `<figcaption>${inlineRich(f.caption)}</figcaption>` : ''}</figure>`;
+  }).join('');
+}
+function choiceHTML(s) {
+  return isSvg(s) ? `<span class="choice-fig">${sanitizeSvg(s)}</span>` : inlineRich(s);
+}
+function openZoom(fig) {
+  const svg = fig.querySelector('svg');
+  if (!svg) return;
+  const ov = document.createElement('div');
+  ov.className = 'zoom-ov';
+  ov.setAttribute('role', 'dialog');
+  ov.setAttribute('aria-label', '図の拡大表示（タップで閉じる）');
+  ov.innerHTML = `<div class="zoom-inner">${svg.outerHTML}</div><p class="zoom-hint">タップで閉じる ・ 2本指で拡大</p>`;
+  ov.addEventListener('click', () => ov.remove());
+  document.body.appendChild(ov);
 }
 
 let toastTimer = 0;
@@ -350,7 +419,8 @@ function viewPlay() {
     inText.add(k);
     if (c.graded && bi >= 0) {
       const b = q.blanks[bi];
-      return `<span class="slot ${c.results[bi] ? 'ok' : 'ng'}">${esc(k)}<b>${esc(b.choices[b.answer])}</b></span>`;
+      const ans = b.choices[b.answer];
+      return `<span class="slot ${c.results[bi] ? 'ok' : 'ng'}">${esc(k)}<b>${isSvg(ans) ? '（図）' : esc(ans)}</b></span>`;
     }
     return `<span class="slot">${esc(k)}</span>`;
   });
@@ -382,7 +452,7 @@ function viewPlay() {
         else cls += ' dim';
       } else if (c.picks[bi] === ci) cls += ' sel';
       return `<button class="${cls}" data-act="pick" data-b="${bi}" data-c="${ci}" ${c.graded ? 'disabled' : ''} aria-pressed="${c.picks[bi] === ci}">
-        <span class="k">${KANA[pos]}</span><span class="v">${inlineRich(b.choices[ci])}</span><span class="mk">${mk}</span></button>`;
+        <span class="k">${KANA[pos]}</span><span class="v">${choiceHTML(b.choices[ci])}</span><span class="mk">${mk}</span></button>`;
     }).join('');
     return `<section class="blank" aria-label="${multi ? `空欄 ${esc(labels[bi])}` : '選択肢'}">${head}<div class="choices ${cols2 ? 'cols2' : ''}">${btns}</div></section>`;
   }).join('');
@@ -398,6 +468,7 @@ function viewPlay() {
       <section class="explain" aria-label="解説">
         <h2>解説 ${bmLineBtn(q.id)}</h2>
         ${q.explanation ? rich(q.explanation) : '<p>解説はありません。</p>'}
+        ${figuresHTML(q.explanationFigures)}
       </section>`;
   }
 
@@ -417,7 +488,7 @@ function viewPlay() {
       <span>${esc(q.source || q.id)}</span>
       ${isWeak(q.id) ? '<span class="tag weak">苦手</span>' : ''}
     </div>
-    <article class="qtext">${textHTML}</article>
+    <article class="qtext">${textHTML}${figuresHTML(q.figures)}</article>
     ${blanksHTML}
     ${resultHTML}
     ${action ? `<div class="actionbar"><div class="inner">${action}</div></div>` : ''}`;
@@ -622,7 +693,11 @@ function importText(text) {
         choices: b.choices.map(String), answer: b.answer,
       })),
       explanation: q.explanation ? String(q.explanation) : '',
+      figures: normFigures(q.figures || q.figure),
+      explanationFigures: normFigures(q.explanationFigures),
     };
+    if (!clean.figures.length) delete clean.figures;
+    if (!clean.explanationFigures.length) delete clean.explanationFigures;
     if (store.d.questions[q.id]) updated++; else added++;
     store.d.questions[q.id] = clean;
   });
@@ -686,6 +761,7 @@ document.addEventListener('click', (e) => {
   if (!el) return;
   const act = el.dataset.act;
   if (act === 'bm') { e.preventDefault(); toggleBookmark(el.dataset.id); }
+  else if (act === 'zoom') { if (!el.closest('.choice')) openZoom(el); }
   else if (act === 'subject') {
     store.d.ui.subject = el.dataset.v; store.save();
     const y = window.scrollY; render(); window.scrollTo(0, Math.min(y, 0));
