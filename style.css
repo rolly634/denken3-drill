@@ -15,6 +15,7 @@
   --ng-soft: #f7e3de;
   --warn: #9a6a12;
   --slot: #fbefcf;
+  --sheet: #d9453a; --sheet-ink: rgba(255,255,255,.9); --sheet-soft: #fbe3df; --sheet-text: #c0322a;
   --star: #d39a12;
   --radius: 14px;
   --shadow: 0 1px 2px rgba(30, 30, 20, .06), 0 2px 8px rgba(30, 30, 20, .05);
@@ -38,6 +39,7 @@
     --ng-soft: #3a2420;
     --warn: #e0b45c;
     --slot: #3a3320;
+    --sheet: #b8473d; --sheet-ink: rgba(255,255,255,.85); --sheet-soft: #3d2522; --sheet-text: #ff8f80;
     --star: #f0c04a;
     --shadow: none;
     color-scheme: dark;
@@ -46,7 +48,7 @@
 :root[data-theme="dark"] {
   --bg: #14181f; --surface: #1c2129; --surface-2: #262c36; --ink: #e7e9ee; --ink-2: #b4bac6; --ink-3: #848b99;
   --line: #313845; --accent: #7fb0de; --accent-ink: #0f1620; --accent-soft: #233446; --ok: #6cc28f; --ok-soft: #1d3326;
-  --ng: #ec8a78; --ng-soft: #3a2420; --warn: #e0b45c; --slot: #3a3320; --star: #f0c04a; --shadow: none; color-scheme: dark;
+  --ng: #ec8a78; --ng-soft: #3a2420; --warn: #e0b45c; --slot: #3a3320; --sheet: #b8473d; --sheet-ink: rgba(255,255,255,.85); --sheet-soft: #3d2522; --sheet-text: #ff8f80; --star: #f0c04a; --shadow: none; color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -182,40 +184,29 @@ li:first-child > .qrow { border-top: 0; }
 .slot.ok { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 40%, transparent); color: var(--ok); }
 .slot.ng { background: var(--ng-soft); border-color: color-mix(in srgb, var(--ng) 40%, transparent); color: var(--ng); }
 
-/* ---------- 法規入門（語群） ---------- */
-button.slot { font: inherit; font-weight: 700; cursor: pointer; vertical-align: baseline; }
-.slot.tap.filled { color: var(--warn); }
-.slot.tap.active { outline: 2.5px solid var(--accent); outline-offset: 1px; background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-.bank { margin-top: 16px; }
-.bank-h { font-weight: 700; font-size: 15px; margin: 0 0 8px; }
-.bank-h small { font-weight: 500; color: var(--ink-3); margin-left: 6px; font-size: 13px; }
-.bank-words {
-  display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border-radius: var(--radius);
-  background: var(--surface-2); border: 1px solid var(--line);
-  position: sticky; bottom: 76px; z-index: 2; box-shadow: var(--shadow);
+/* ---------- モード切り替え ---------- */
+.modesw { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin: 2px 0 4px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.modesw button { min-height: 44px; border: 0; border-radius: 9px; background: none; font: inherit; font-weight: 700; font-size: 15px; color: var(--ink-2); line-height: 1.2; }
+.modesw button small { display: block; font-size: 11px; font-weight: 500; color: var(--ink-3); }
+.modesw button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+/* ---------- インプット：赤シート ---------- */
+.mask {
+  display: inline-flex; align-items: center; gap: .35em; min-width: 3.6em; min-height: 1.75em; padding: 0 .55em; margin: 0 .15em;
+  border-radius: 6px; border: 0; vertical-align: baseline; font: inherit; line-height: 1.6; cursor: pointer;
+  background: var(--sheet); color: var(--sheet-ink); justify-content: center;
 }
-.word {
-  min-height: 44px; padding: 6px 14px; border-radius: 10px; border: 1.5px solid var(--line);
-  background: var(--surface); font: inherit; font-weight: 600; line-height: 1.4; max-width: 100%; overflow-x: auto;
-}
-.word:active { background: var(--accent-soft); border-color: var(--accent); }
-.word.used { opacity: .45; }
-.fills { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
-.fill {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 12px;
-  border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface); text-align: left; font: inherit; line-height: 1.5;
-}
-.fill .lbl { flex: none; padding: 0 10px; border-radius: 6px; background: var(--slot); color: var(--warn); font-weight: 700; }
-.fill .fv { flex: 1; min-width: 0; overflow-x: auto; }
-.fill .fp { display: block; font-size: 13px; color: var(--ink-2); }
-.fill .ph { color: var(--ink-3); font-size: 14px; }
-.fill .mk { flex: none; font-weight: 800; font-size: 18px; }
-.fill s { color: var(--ng); }
-button.fill.active { border-color: var(--accent); background: var(--accent-soft); }
-.fill.ok { border-color: var(--ok); background: var(--ok-soft); }
-.fill.ok .mk { color: var(--ok); }
-.fill.ng { border-color: var(--ng); background: var(--ng-soft); }
-.fill.ng .mk { color: var(--ng); }
+.mask .ml { font-weight: 700; font-size: .8em; }
+.mask .ma { display: none; }
+.mask.shown { background: var(--sheet-soft); color: var(--sheet-text); box-shadow: inset 0 -2px 0 var(--sheet); }
+.mask.shown .ml { opacity: .6; }
+.mask.shown .ma { display: inline; font-weight: 700; }
+.mask .ma .katex { color: inherit; }
+.answers { margin-top: 12px; display: grid; gap: 10px; }
+.ans-row { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.ans-h { font-size: 15px; color: var(--ink-2); margin-bottom: 8px; line-height: 1.6; }
+.ans-row .mask { display: flex; width: 100%; margin: 0; min-height: 48px; align-items: center; justify-content: flex-start; padding: 6px 12px; overflow-x: auto; }
+.ans-row .mask:not(.shown) .ml::after { content: '　タップで表示'; font-weight: 500; }
 
 /* ---------- figures (SVG) ----------
    図の描画ルール: 線は currentColor、背景で塗りつぶす部分は class="bg"、

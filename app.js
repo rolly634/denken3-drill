@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -22,7 +22,6 @@ const I = {
   shuffle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h4v4M4 20l16-16M20 16v4h-4M15 15l5 5M4 4l5 5"/></svg>',
   next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>',
-  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M9 8h7M9 11.5h5"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
 };
 
@@ -48,9 +47,7 @@ function normalize(raw) {
     bookmarks: Array.isArray(d.bookmarks) ? d.bookmarks : [],
     session: d.session || null,
     lastSession: d.lastSession || null,
-    isession: d.isession || null, // 法規入門（学習記録に残さない）
-    ilast: d.ilast || null,
-    ui: Object.assign({ subject: 'all' }, d.ui || {}),
+    ui: Object.assign({ subject: 'all', mode: 'output' }, d.ui || {}), // mode: output（演習）/ input（暗記）
   };
 }
 
@@ -259,24 +256,17 @@ function rowsHTML(list, { grouped = true } = {}) {
 }
 
 /* ---------------- sessions ---------------- */
-const MODE_TITLE = { list: '問題一覧', weak: '苦手克服', bookmark: 'ブックマーク', random: 'ランダム演習', intro: '法規入門' };
-const INTRO_SUBJECT = '法規';
-
-/* 通常の演習は store.d.session、法規入門は store.d.isession を使う（「続きから」を別々に持つ） */
-let SK = 'session';
-const sess = () => store.d[SK];
-const isIntroRoute = (r) => r === 'intro' || r === 'iplay' || r === 'idone';
+const MODE_TITLE = { list: '問題一覧', weak: '苦手克服', bookmark: 'ブックマーク', random: 'ランダム演習' };
 
 function startSession(mode, ids, pos = 0, subject = 'all') {
   if (!ids.length) { toast('出題できる問題がありません'); return; }
-  const intro = mode === 'intro';
-  store.d[intro ? 'isession' : 'session'] = {
-    mode, subject, title: MODE_TITLE[mode] || '演習', intro,
+  store.d.session = {
+    mode, subject, title: MODE_TITLE[mode] || '演習',
     queue: ids, pos, endless: mode === 'random', cur: null,
     stats: { n: 0, ok: 0 }, startedAt: Date.now(),
   };
   store.save();
-  go(intro ? '#/iplay' : '#/play');
+  go('#/play');
 }
 function randomQueue(subject, avoidFirst) {
   const ids = allQ(subject).map((q) => q.id);
@@ -296,7 +286,6 @@ function viewHome() {
   const lastOk = answered.filter((q) => prog(q.id).last === 'ok').length;
   const weakN = weakQ().length;
   const bmN = bmQ().length;
-  const introN = allQ(INTRO_SUBJECT).length;
   const s = store.d.session;
   let resumeSub = 'まだ記録がありません';
   let resumeOn = false;
@@ -334,9 +323,6 @@ function viewHome() {
         <span class="badge">${bmN}</span></a>
       <a class="menu-item" href="#/random" aria-disabled="${!qs.length}">
         <span class="ic">${I.shuffle}</span><span class="tx"><b>ランダム演習</b><span>区切りなく次々に出題</span></span></a>
-      <a class="menu-item" href="#/intro" aria-disabled="${!introN}">
-        <span class="ic">${I.book}</span><span class="tx"><b>法規入門</b><span>語群から選ぶ・正誤は記録しない</span></span>
-        <span class="badge">${introN}</span></a>
     </nav>
     ${installHTML()}
   `;
@@ -394,26 +380,6 @@ function viewRandom() {
   $('[data-act="start"]').addEventListener('click', () => startSession('random', randomQueue(sub), 0, sub));
 }
 
-function viewIntro() {
-  const list = allQ(INTRO_SUBJECT);
-  const ids = list.map((q) => q.id);
-  const s = store.d.isession;
-  let resume = '';
-  if (s && s.queue && s.queue.length) {
-    const q = store.d.questions[s.queue[s.pos]];
-    resume = `<button class="btn primary block" data-act="iresume">${I.resume}続きから（${s.pos + 1}/${s.queue.length}${q ? ` ・ ${esc(q.source || q.id)}` : ''}）</button><div style="height:8px"></div>`;
-  }
-  app().innerHTML = `${topbar('法規入門', `${list.length}問`)}
-    <p class="lead">法規の問題を、選択肢が4つの空欄は<b>語群</b>（その問題の答えだけを集めたもの）から選んで埋めます。2択の空欄はそのまま2択です。<br>このモードの正誤は記録しないので、苦手克服や正答率には影響しません。</p>
-    ${list.length ? `${resume}
-      <button class="btn ${resume ? '' : 'primary'} block" data-act="istart">${I.book}最初から始める</button>
-      <p class="lead" style="margin-top:12px">問題をタップすると、そこから順に出題します。</p>
-      ${rowsHTML(list)}` : `<div class="empty">${I.book}<p>法規の問題がありません。<br>設定から問題を取り込んでください。</p></div>`}`;
-  $('[data-act="iresume"]')?.addEventListener('click', () => go('#/iplay'));
-  $('[data-act="istart"]')?.addEventListener('click', () => startSession('intro', ids, 0, INTRO_SUBJECT));
-  bindRows((id) => startSession('intro', ids, Math.max(0, ids.indexOf(id)), INTRO_SUBJECT));
-}
-
 function bindRows(onOpen) {
   typeset(app());
   app().querySelectorAll('[data-act="open"]').forEach((el) => el.addEventListener('click', () => onOpen(el.dataset.id)));
@@ -427,50 +393,30 @@ function ensureCur(s) {
   if (s.pos >= s.queue.length) return null;
   const id = s.queue[s.pos];
   const q = store.d.questions[id];
-  if (!s.cur || s.cur.id !== id || !Array.isArray(s.cur.picks) || s.cur.picks.length !== q.blanks.length || !!s.cur.intro !== !!s.intro) {
+  if (!s.cur || s.cur.id !== id || !Array.isArray(s.cur.picks) || s.cur.picks.length !== q.blanks.length) {
     s.cur = {
       id,
       orders: q.blanks.map((b) => shuffle(b.choices.map((_, i) => i))),
       picks: q.blanks.map(() => null),
       graded: false,
     };
-    if (s.intro) Object.assign(s.cur, introBank(q));
     store.save();
   }
   return q;
 }
 
-/* 法規入門：選択肢が3つ以上の空欄は、それらの正解だけを集めた語群から選ぶ。
-   語群が1語にしかならない問題（空欄が1つだけ等）は通常の選択肢のまま出す。 */
-function introBank(q) {
-  const idx = q.blanks.map((b, i) => (b.choices.length > 2 ? i : -1)).filter((i) => i >= 0);
-  const words = [...new Set(idx.map((i) => q.blanks[i].choices[q.blanks[i].answer]))];
-  if (words.length < 2) return { intro: true, bankIdx: [], bank: [], active: null };
-  return { intro: true, bankIdx: idx, bank: shuffle(words), active: idx[0] };
-}
-const blankLabels = (q) => q.blanks.map((b, i) => (b.label != null ? String(b.label) : String(i + 1)));
-function isRight(q, c, bi) {
-  const b = q.blanks[bi];
-  return (c.bankIdx || []).includes(bi) ? c.picks[bi] === b.choices[b.answer] : c.picks[bi] === b.answer;
-}
-
 function viewPlay() {
-  const s = sess();
-  if (!s) { go(SK === 'isession' ? '#/intro' : '#/'); return; }
+  const s = store.d.session;
+  if (!s) { go('#/'); return; }
   const q = ensureCur(s);
   if (!q) { finishSession(); return; }
   const c = s.cur;
   const multi = q.blanks.length > 1;
-  const labels = blankLabels(q);
-  const bankSet = new Set(c.bankIdx || []);
+  const labels = q.blanks.map((b, i) => (b.label != null ? String(b.label) : String(i + 1)));
   const inText = new Set();
   const textHTML = rich(q.text, (k) => {
     const bi = labels.indexOf(k);
     inText.add(k);
-    if (bankSet.has(bi) && !c.graded) {
-      const w = c.picks[bi];
-      return `<button class="slot tap ${c.active === bi ? 'active' : ''} ${w != null ? 'filled' : ''}" data-act="slot" data-b="${bi}" aria-label="空欄 ${esc(k)}">${esc(k)}${w != null ? `<b>${choiceHTML(w)}</b>` : ''}</button>`;
-    }
     if (c.graded && bi >= 0) {
       const b = q.blanks[bi];
       const ans = b.choices[b.answer];
@@ -480,11 +426,11 @@ function viewPlay() {
   });
 
   const counter = s.endless
-    ? `${s.stats.n + (c.graded ? 0 : 1)}問目 ・ 正解 ${s.stats.ok}`
+    ? `${(s.count || 0) + 1}問目 ・ 正解 ${s.stats.ok}`
     : `${s.pos + 1} / ${s.queue.length}`;
+  if (store.d.ui.mode === 'input') { viewInput(s, q, counter); return; }
 
   const blanksHTML = q.blanks.map((b, bi) => {
-    if (bankSet.has(bi)) return '';
     const order = c.orders[bi];
     const longest = Math.max(...b.choices.map((t) => t.length));
     const cols2 = !b.choices.some((t) => t.includes('$') || isSvg(t)) && ((b.choices.length === 4 && longest <= 6) || (b.choices.length === 2 && longest <= 12));
@@ -512,26 +458,6 @@ function viewPlay() {
     return `<section class="blank" aria-label="${multi ? `空欄 ${esc(labels[bi])}` : '選択肢'}">${head}<div class="choices ${cols2 ? 'cols2' : ''}">${btns}</div></section>`;
   }).join('');
 
-  let bankHTML = '';
-  if (bankSet.size) {
-    const used = new Set(c.bankIdx.map((i) => c.picks[i]).filter((w) => w != null));
-    const rows = c.bankIdx.map((bi) => {
-      const b = q.blanks[bi];
-      const w = c.picks[bi];
-      const lab = labels[bi];
-      const promptTx = b.prompt ? `<span class="fp">${inlineRich(b.prompt)}</span>` : '';
-      if (c.graded) {
-        const ok = c.results[bi];
-        return `<li class="fill ${ok ? 'ok' : 'ng'}"><span class="lbl">${esc(lab)}</span><span class="fv">${promptTx}${ok ? '' : `<s>${w != null ? choiceHTML(w) : '未選択'}</s> → `}<b>${choiceHTML(b.choices[b.answer])}</b></span><span class="mk">${ok ? '○' : '×'}</span></li>`;
-      }
-      return `<li><button class="fill ${c.active === bi ? 'active' : ''}" data-act="slot" data-b="${bi}"><span class="lbl">${esc(lab)}</span><span class="fv">${promptTx}${w != null ? `<b>${choiceHTML(w)}</b>` : '<span class="ph">タップして選ぶ</span>'}</span></button></li>`;
-    }).join('');
-    const words = c.graded ? '' : `<div class="bank-words">${c.bank.map((w, wi) =>
-      `<button class="word ${used.has(w) ? 'used' : ''}" data-act="word" data-w="${wi}">${choiceHTML(w)}</button>`).join('')}</div>`;
-    const head = c.graded ? '語群の空欄' : `語群 <small>${c.active != null ? `空欄 ${esc(labels[c.active])} に入る語句をタップ` : '空欄をタップして選び直せます'}</small>`;
-    bankHTML = `<section class="bank" aria-label="語群"><div class="bank-h">${head}</div>${words}<ul class="fills">${rows}</ul></section>`;
-  }
-
   let resultHTML = '';
   if (c.graded) {
     const okN = c.results.filter(Boolean).length;
@@ -556,7 +482,8 @@ function viewPlay() {
     action = `<button class="btn primary" data-act="grade" ${allPicked ? '' : 'disabled'}>${allPicked ? '採点する' : `あと${c.picks.filter((p) => p === null).length}か所 選んでください`}</button>`;
   }
 
-  app().innerHTML = `${topbar(s.title, counter, starBtn(q.id), s.intro ? '#/intro' : '#/')}
+  app().innerHTML = `${topbar(s.title, counter, starBtn(q.id))}
+    ${modeSwitchHTML()}
     <div class="meta">
       <span class="tag">${esc(q.subject)}</span>
       ${q.unit ? `<span>${esc(q.unit)}</span>` : ''}
@@ -564,7 +491,6 @@ function viewPlay() {
       ${isWeak(q.id) ? '<span class="tag weak">苦手</span>' : ''}
     </div>
     <article class="qtext">${textHTML}${figuresHTML(q.figures)}</article>
-    ${bankHTML}
     ${blanksHTML}
     ${resultHTML}
     ${action ? `<div class="actionbar"><div class="inner">${action}</div></div>` : ''}`;
@@ -580,27 +506,88 @@ function viewPlay() {
     viewPlay();
     window.scrollTo(0, y);
   }));
-  const rerender = () => { const y = window.scrollY; viewPlay(); window.scrollTo(0, y); };
-  app().querySelectorAll('[data-act="slot"]').forEach((el) => el.addEventListener('click', () => {
-    if (c.graded) return;
-    const bi = +el.dataset.b;
-    if (c.active === bi && c.picks[bi] != null) c.picks[bi] = null; // 選択中の空欄をもう一度タップで取り消し
-    c.active = bi;
-    store.save(); rerender();
-  }));
-  app().querySelectorAll('[data-act="word"]').forEach((el) => el.addEventListener('click', () => {
-    if (c.graded) return;
-    const w = c.bank[+el.dataset.w];
-    if (c.active == null) c.active = c.bankIdx.find((i) => c.picks[i] == null) ?? null;
-    if (c.active == null) return;
-    c.picks[c.active] = w;
-    const k = c.bankIdx.indexOf(c.active);
-    const order = c.bankIdx.slice(k + 1).concat(c.bankIdx.slice(0, k));
-    c.active = order.find((i) => c.picks[i] == null) ?? null;
-    store.save(); rerender();
-  }));
   $('[data-act="grade"]')?.addEventListener('click', () => grade(q));
   $('[data-act="next"]')?.addEventListener('click', nextQuestion);
+}
+
+/* ---------- インプット（暗記）モード ----------
+   赤シートのように空欄を隠し、タップでその空欄の答えを表示／もう一度タップで隠す。
+   正誤は記録しない。問題・答え・解説を1画面にまとめる。 */
+function modeSwitchHTML() {
+  const m = store.d.ui.mode === 'input' ? 'input' : 'output';
+  return `<div class="modesw" role="group" aria-label="モード切り替え">
+    <button data-act="mode" data-v="output" aria-pressed="${m === 'output'}">アウトプット<small>解いて採点</small></button>
+    <button data-act="mode" data-v="input" aria-pressed="${m === 'input'}">インプット<small>隠して暗記</small></button>
+  </div>`;
+}
+function maskHTML(bi, label, ans, shown) {
+  return `<button class="mask ${shown ? 'shown' : ''}" data-act="reveal" data-b="${bi}" aria-pressed="${shown}" aria-label="空欄 ${esc(label)} の答え">`
+    + `<span class="ml">${esc(label)}</span><span class="ma">${choiceHTML(ans)}</span></button>`;
+}
+function viewInput(s, q, counter) {
+  const c = s.cur;
+  const labels = q.blanks.map((b, i) => (b.label != null ? String(b.label) : String(i + 1)));
+  if (!Array.isArray(c.shown) || c.shown.length !== q.blanks.length) c.shown = q.blanks.map(() => false);
+  const ansOf = (bi) => q.blanks[bi].choices[q.blanks[bi].answer];
+  const inText = new Set();
+  const textHTML = rich(q.text, (k) => {
+    const bi = labels.indexOf(k);
+    if (bi < 0) return `<span class="slot">${esc(k)}</span>`;
+    inText.add(bi);
+    return maskHTML(bi, k, ansOf(bi), c.shown[bi]);
+  });
+  // 文中に空欄がない解答欄は、問題の下に答えの欄を置く
+  const rest = q.blanks.map((b, bi) => bi).filter((bi) => !inText.has(bi));
+  const single = rest.length === 1 && q.blanks.length === 1;
+  const restHTML = rest.length ? `<section class="answers" aria-label="答え">${rest.map((bi) => {
+    const b = q.blanks[bi];
+    const head = b.prompt ? inlineRich(b.prompt) : (single ? '答え' : `解答欄 ${esc(labels[bi])}`);
+    return `<div class="ans-row"><div class="ans-h">${head}</div>${maskHTML(bi, single ? '答え' : labels[bi], ansOf(bi), c.shown[bi])}</div>`;
+  }).join('')}</section>` : '';
+  const multi = q.blanks.length > 1;
+  const allShown = c.shown.every(Boolean);
+  const isLast = !s.endless && s.pos + 1 >= s.queue.length;
+  app().innerHTML = `${topbar(s.title, counter, starBtn(q.id))}
+    ${modeSwitchHTML()}
+    <div class="meta">
+      <span class="tag">${esc(q.subject)}</span>
+      ${q.unit ? `<span>${esc(q.unit)}</span>` : ''}
+      <span>${esc(q.source || q.id)}</span>
+      ${isWeak(q.id) ? '<span class="tag weak">苦手</span>' : ''}
+    </div>
+    <article class="qtext input">${textHTML}${figuresHTML(q.figures)}</article>
+    ${restHTML}
+    <section class="explain" aria-label="解説">
+      <h2>解説 ${bmLineBtn(q.id)}</h2>
+      ${q.explanation ? rich(q.explanation) : '<p>解説はありません。</p>'}
+      ${figuresHTML(q.explanationFigures)}
+    </section>
+    <div class="actionbar"><div class="inner">
+      ${multi ? `<button class="btn" data-act="reveal-all">${allShown ? 'すべて隠す' : 'すべて表示'}</button>` : ''}
+      <button class="btn primary" data-act="next">${isLast ? '終わる' : '次へ'}${I.next}</button>
+    </div></div>`;
+  typeset(app());
+  const sync = () => {
+    app().querySelectorAll('[data-act="reveal"]').forEach((el) => {
+      const on = !!c.shown[+el.dataset.b];
+      el.classList.toggle('shown', on);
+      el.setAttribute('aria-pressed', String(on));
+    });
+    const all = $('[data-act="reveal-all"]');
+    if (all) all.textContent = c.shown.every(Boolean) ? 'すべて隠す' : 'すべて表示';
+    store.save();
+  };
+  app().querySelectorAll('[data-act="reveal"]').forEach((el) => el.addEventListener('click', () => {
+    const bi = +el.dataset.b;
+    c.shown[bi] = !c.shown[bi];
+    sync();
+  }));
+  $('[data-act="reveal-all"]')?.addEventListener('click', () => {
+    const v = !c.shown.every(Boolean);
+    c.shown = c.shown.map(() => v);
+    sync();
+  });
+  $('[data-act="next"]').addEventListener('click', nextQuestion);
 }
 function bmLineBtn(id) {
   const on = isBm(id);
@@ -608,14 +595,11 @@ function bmLineBtn(id) {
 }
 
 function grade(q) {
-  const s = sess();
+  const s = store.d.session;
   const c = s.cur;
   if (c.graded || c.picks.some((p) => p === null)) return;
-  c.results = q.blanks.map((b, i) => isRight(q, c, i));
+  c.results = q.blanks.map((b, i) => c.picks[i] === b.answer);
   const ok = c.results.every(Boolean);
-  if (s.intro) {
-    c.note = '法規入門の正誤は記録しません';
-  } else {
   const p = store.d.progress[q.id] || { n: 0, ok: 0, streak: 0, weak: false };
   p.n += 1;
   if (ok) {
@@ -632,7 +616,6 @@ function grade(q) {
   p.last = ok ? 'ok' : 'ng';
   p.at = Date.now();
   store.d.progress[q.id] = p;
-  }
   s.stats.n += 1;
   if (ok) s.stats.ok += 1;
   c.graded = true;
@@ -648,7 +631,8 @@ function grade(q) {
 }
 
 function nextQuestion() {
-  const s = sess();
+  const s = store.d.session;
+  s.count = (s.count || 0) + 1;
   s.pos += 1;
   s.cur = null;
   if (s.pos >= s.queue.length) {
@@ -665,30 +649,27 @@ function nextQuestion() {
 }
 
 function finishSession() {
-  const s = sess();
-  const intro = SK === 'isession';
+  const s = store.d.session;
   if (s) {
-    store.d[intro ? 'ilast' : 'lastSession'] = { mode: s.mode, subject: s.subject, title: s.title, queue: s.queue, stats: s.stats };
-    store.d[SK] = null;
+    store.d.lastSession = { mode: s.mode, subject: s.subject, title: s.title, queue: s.queue, stats: s.stats };
+    store.d.session = null;
     store.save();
   }
-  go(intro ? '#/idone' : '#/done');
+  go('#/done');
 }
 
 function viewDone() {
-  const intro = SK === 'isession';
-  const l = intro ? store.d.ilast : store.d.lastSession;
-  if (!l) { go(intro ? '#/intro' : '#/'); return; }
-  const weakN = intro ? 0 : weakQ().length;
-  app().innerHTML = `${topbar('おつかれさまでした', '', '', intro ? '#/intro' : '#/')}
+  const l = store.d.lastSession;
+  if (!l) { go('#/'); return; }
+  const weakN = weakQ().length;
+  app().innerHTML = `${topbar('おつかれさまでした')}
     <div class="done">
       <p>${esc(l.title)} の演習が終わりました</p>
-      <div class="ring">${l.stats.ok} / ${l.stats.n}</div>
-      <p>正答率 ${pct(l.stats.ok, l.stats.n)}%</p>
+      ${l.stats.n ? `<div class="ring">${l.stats.ok} / ${l.stats.n}</div>
+      <p>正答率 ${pct(l.stats.ok, l.stats.n)}%</p>` : '<p>最後の問題まで確認しました</p>'}
       <div class="btns">
         <button class="btn primary" data-act="again">${I.resume}同じ問題をもう一度</button>
         ${weakN ? `<a class="btn" href="#/weak">${I.target}苦手克服へ（${weakN}問）</a>` : ''}
-        ${intro ? `<a class="btn" href="#/intro">${I.book}法規入門へ戻る</a>` : ''}
         <a class="btn" href="#/">トップへ戻る</a>
       </div>
     </div>`;
@@ -751,7 +732,7 @@ function viewSettings() {
   });
   $('[data-act="reset-progress"]').addEventListener('click', () => {
     if (!confirm('学習記録（正誤・苦手克服・続きから）を消します。ブックマークと問題は残ります。よろしいですか？')) return;
-    store.d.progress = {}; store.d.session = null; store.d.lastSession = null; store.d.isession = null; store.d.ilast = null;
+    store.d.progress = {}; store.d.session = null; store.d.lastSession = null;
     store.save(); toast('学習記録を消しました'); viewSettings();
   });
   $('[data-act="reset-all"]').addEventListener('click', () => {
@@ -849,14 +830,10 @@ const routes = {
   play: viewPlay,
   resume: () => { if (store.d.session) go('#/play'); else go('#/'); },
   done: viewDone,
-  intro: viewIntro,
-  iplay: viewPlay,
-  idone: viewDone,
   settings: viewSettings,
 };
 function render() {
   const r = location.hash.replace(/^#\/?/, '').split('?')[0];
-  SK = isIntroRoute(r) ? 'isession' : 'session';
   (routes[r] || viewHome)();
   if (r !== 'resume') window.scrollTo(0, 0);
 }
@@ -868,7 +845,11 @@ document.addEventListener('click', (e) => {
   const act = el.dataset.act;
   if (act === 'bm') { e.preventDefault(); toggleBookmark(el.dataset.id); }
   else if (act === 'zoom') { if (!el.closest('.choice')) openZoom(el); }
-  else if (act === 'subject') {
+  else if (act === 'mode') {
+    if (store.d.ui.mode === el.dataset.v) return;
+    store.d.ui.mode = el.dataset.v; store.save();
+    viewPlay(); window.scrollTo(0, 0);
+  } else if (act === 'subject') {
     store.d.ui.subject = el.dataset.v; store.save();
     const y = window.scrollY; render(); window.scrollTo(0, Math.min(y, 0));
   } else if (act === 'install' && deferredInstall) {
