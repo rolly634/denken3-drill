@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -78,6 +78,8 @@ function allQ(subject = 'all') {
     .filter((q) => subject === 'all' || q.subject === subject)
     .sort(compareQ);
 }
+/* 出典表示。教材のチェック欄「□」は表示しない（例: 法規 □159 → 法規 159） */
+const srcLabel = (q) => String(q.source || q.id).replace(/\s*[□☐]\s*/g, ' ').replace(/\s+/g, ' ').trim();
 const prog = (id) => store.d.progress[id] || null;
 const isWeak = (id) => !!(store.d.progress[id] && store.d.progress[id].weak);
 const isBm = (id) => store.d.bookmarks.includes(id);
@@ -245,7 +247,7 @@ function rowsHTML(list, { grouped = true } = {}) {
     html += `<li><button class="qrow" data-act="open" data-id="${esc(q.id)}">
       <span class="st ${cls}" aria-hidden="true">${mark}</span>
       <span class="body">
-        <span class="src">${esc(q.source || q.id)}${isWeak(q.id) ? '<span class="weak">苦手</span>' : ''}</span>
+        <span class="src">${esc(srcLabel(q))}${isWeak(q.id) ? '<span class="weak">苦手</span>' : ''}</span>
         <span class="snip">${esc(plainSnippet(q))}</span>
       </span>
       ${isBm(q.id) ? `<span class="bm" aria-label="ブックマーク済み">${I.star}</span>` : ''}
@@ -292,7 +294,7 @@ function viewHome() {
   if (s && s.queue && s.queue.length) {
     const q = store.d.questions[s.queue[s.pos]];
     resumeOn = true;
-    resumeSub = `${esc(s.title)}${s.endless ? '' : `（${s.pos + 1}/${s.queue.length}）`}${q ? ` ・ ${esc(q.source || q.id)}` : ''}`;
+    resumeSub = `${esc(s.title)}${s.endless ? '' : `（${s.pos + 1}/${s.queue.length}）`}${q ? ` ・ ${esc(srcLabel(q))}` : ''}`;
   }
   app().innerHTML = `
     <header class="brand">
@@ -487,7 +489,7 @@ function viewPlay() {
     <div class="meta">
       <span class="tag">${esc(q.subject)}</span>
       ${q.unit ? `<span>${esc(q.unit)}</span>` : ''}
-      <span>${esc(q.source || q.id)}</span>
+      <span>${esc(srcLabel(q))}</span>
       ${isWeak(q.id) ? '<span class="tag weak">苦手</span>' : ''}
     </div>
     <article class="qtext">${textHTML}${figuresHTML(q.figures)}</article>
@@ -552,7 +554,7 @@ function viewInput(s, q, counter) {
     <div class="meta">
       <span class="tag">${esc(q.subject)}</span>
       ${q.unit ? `<span>${esc(q.unit)}</span>` : ''}
-      <span>${esc(q.source || q.id)}</span>
+      <span>${esc(srcLabel(q))}</span>
       ${isWeak(q.id) ? '<span class="tag weak">苦手</span>' : ''}
     </div>
     <article class="qtext input">${textHTML}${figuresHTML(q.figures)}</article>
