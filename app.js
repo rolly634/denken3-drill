@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -493,7 +493,7 @@ function viewPlay() {
     <article class="qtext">${textHTML}${figuresHTML(q.figures)}</article>
     ${blanksHTML}
     ${resultHTML}
-    ${action ? `<div class="actionbar"><div class="inner">${action}</div></div>` : ''}`;
+    <div class="actionbar"><div class="inner">${prevBtnHTML(s)}${action || '<span class="grow"></span>'}</div></div>`;
   typeset(app());
 
   app().querySelectorAll('[data-act="pick"]').forEach((el) => el.addEventListener('click', () => {
@@ -563,6 +563,7 @@ function viewInput(s, q, counter) {
       ${figuresHTML(q.explanationFigures)}
     </section>
     <div class="actionbar"><div class="inner">
+      ${prevBtnHTML(s)}
       ${multi ? `<button class="btn" data-act="reveal-all">${allShown ? 'すべて隠す' : 'すべて表示'}</button>` : ''}
       <button class="btn primary" data-act="next">${isLast ? '終わる' : '次へ'}${I.next}</button>
     </div></div>`;
@@ -588,6 +589,9 @@ function viewInput(s, q, counter) {
     sync();
   });
   $('[data-act="next"]').addEventListener('click', nextQuestion);
+}
+function prevBtnHTML(s) {
+  return `<button class="btn prev" data-act="prev" ${s.pos > 0 ? '' : 'disabled'} aria-label="前の問題">${I.back}前へ</button>`;
 }
 function bmLineBtn(id) {
   const on = isBm(id);
@@ -628,6 +632,17 @@ function grade(q) {
     const rect = r.getBoundingClientRect();
     if (rect.top > window.innerHeight * 0.55) window.scrollTo({ top: window.scrollY + rect.top - 90, behavior: 'smooth' });
   }
+}
+
+function prevQuestion() {
+  const s = store.d.session;
+  if (!s || s.pos <= 0) return;
+  s.pos -= 1;
+  s.count = Math.max(0, (s.count || 0) - 1);
+  s.cur = null;
+  store.save();
+  viewPlay();
+  window.scrollTo(0, 0);
 }
 
 function nextQuestion() {
@@ -845,6 +860,7 @@ document.addEventListener('click', (e) => {
   const act = el.dataset.act;
   if (act === 'bm') { e.preventDefault(); toggleBookmark(el.dataset.id); }
   else if (act === 'zoom') { if (!el.closest('.choice')) openZoom(el); }
+  else if (act === 'prev') { prevQuestion(); }
   else if (act === 'mode') {
     if (store.d.ui.mode === el.dataset.v) return;
     store.d.ui.mode = el.dataset.v; store.save();

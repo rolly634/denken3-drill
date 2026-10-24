@@ -286,6 +286,10 @@ li:first-child > .qrow { border-top: 0; }
 }
 .actionbar .inner { max-width: 648px; margin: 0 auto; display: flex; gap: 8px; }
 .actionbar .btn { flex: 1; min-height: 52px; font-size: 16px; }
+.actionbar .btn.prev { flex: none; padding: 0 14px 0 8px; gap: 2px; }
+.actionbar .btn.prev svg { width: 20px; height: 20px; }
+.actionbar .btn.prev[disabled] { opacity: .4; }
+.actionbar .grow { flex: 1; }
 
 /* ---------- done ---------- */
 .done { text-align: center; padding: 48px 0 0; }
