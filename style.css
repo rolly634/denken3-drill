@@ -345,3 +345,24 @@ details summary { cursor: pointer; font-size: 14px; color: var(--accent); margin
   z-index: 20; max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 12px;
   background: var(--ink); color: var(--bg); font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.2);
 }
+
+/* ---------- 公式カード ---------- */
+.cst { flex: none; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; background: var(--surface-2); color: var(--ink-2); }
+.cst.new { background: var(--accent-soft); color: var(--accent); }
+.cst.due { background: var(--ng-soft); color: var(--ng); }
+.cst.ok { background: var(--ok-soft); color: var(--ok); }
+.qrow .cst { min-width: 4.5em; text-align: center; }
+.dk { margin-left: 6px; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--slot); color: var(--warn); vertical-align: 1px; }
+.cfront { font-size: 18px; }
+.cback { margin-top: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px 16px; }
+.cname { font-weight: 700; color: var(--ink-2); font-size: 15px; }
+.cformula { margin: 10px 0 12px; padding: 12px; border-radius: 12px; background: var(--sheet-soft); color: var(--sheet-text); font-size: 20px; text-align: center; overflow-x: auto; }
+.cformula .katex { font-size: 1.15em; }
+.cvars { width: 100%; border-collapse: collapse; font-size: 15px; }
+.cvars th, .cvars td { padding: 7px 6px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.5; }
+.cvars tr:first-child th, .cvars tr:first-child td { border-top: 0; }
+.cvars th { width: 4.5em; font-weight: 400; white-space: nowrap; }
+.cvars td.u { width: 1%; white-space: nowrap; color: var(--ink-3); font-size: 13px; text-align: right; }
+.ccond { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 14px; line-height: 1.6; }
+.ccond b { display: block; font-size: 12px; color: var(--ink-3); margin-bottom: 2px; }
+.cnote { margin: 10px 0 0; font-size: 14px; color: var(--ink-2); line-height: 1.7; }

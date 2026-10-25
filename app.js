@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -23,6 +23,7 @@ const I = {
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>',
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="13" height="15" rx="2"/><path d="M7.5 5V4a1 1 0 0 1 1-1H19.5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-3"/><path d="M7 10.5h6M7 14h4"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
 };
 
@@ -48,7 +49,13 @@ function normalize(raw) {
     bookmarks: Array.isArray(d.bookmarks) ? d.bookmarks : [],
     session: d.session || null,
     lastSession: d.lastSession || null,
-    ui: Object.assign({ subject: 'all', mode: 'output' }, d.ui || {}), // mode: output（演習）/ input（暗記）
+    ui: Object.assign({ subject: 'all', mode: 'output', cardSubject: 'all', newPerDay: 10 }, d.ui || {}), // mode: output（演習）/ input（暗記）
+    // 公式カード
+    cards: d.cards && typeof d.cards === 'object' ? d.cards : {},
+    cprog: d.cprog && typeof d.cprog === 'object' ? d.cprog : {},
+    cday: d.cday || null,
+    csession: d.csession || null,
+    clast: d.clast || null,
   };
 }
 
@@ -289,6 +296,7 @@ function viewHome() {
   const lastOk = answered.filter((q) => prog(q.id).last === 'ok').length;
   const weakN = weakQ().length;
   const bmN = bmQ().length;
+  const ck = cardCounts();
   const s = store.d.session;
   let resumeSub = 'まだ記録がありません';
   let resumeOn = false;
@@ -326,6 +334,9 @@ function viewHome() {
         <span class="badge">${bmN}</span></a>
       <a class="menu-item" href="#/random" aria-disabled="${!qs.length}">
         <span class="ic">${I.shuffle}</span><span class="tx"><b>ランダム演習</b><span>区切りなく次々に出題</span></span></a>
+      <a class="menu-item" href="#/cards">
+        <span class="ic">${I.book}</span><span class="tx"><b>公式カード</b><span>${ck.total ? `今日の復習 ${ck.due}枚・新規 ${ck.newToday}枚` : 'カードを取り込むと使えます'}</span></span>
+        <span class="badge ${ck.due + ck.newToday ? 'ng' : ''}">${ck.due + ck.newToday}</span></a>
     </nav>
     ${installHTML()}
   `;
@@ -748,6 +759,268 @@ function viewDone() {
   });
 }
 
+/* =========================================================
+   公式カード（間隔反復）
+   表：状況・条件 → 4択 → 裏：公式名・式・各文字の意味と単位・適用条件
+   正解で 1→3→7→14→30 日後へ、不正解は翌日に戻す。演習の記録とは別に管理する。
+   ========================================================= */
+const CARD_STEPS = [1, 3, 7, 14, 30];
+const pad2 = (n) => String(n).padStart(2, '0');
+const ymd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const todayStr = () => ymd(new Date());
+function addDays(str, n) {
+  const [y, m, d] = str.split('-').map(Number);
+  return ymd(new Date(y, m - 1, d + n));
+}
+function daysFromToday(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  const [ty, tm, td] = todayStr().split('-').map(Number);
+  return Math.round((new Date(y, m - 1, d) - new Date(ty, tm - 1, td)) / 86400000);
+}
+const mdLabel = (str) => { const [, m, d] = str.split('-').map(Number); return `${m}/${d}`; };
+
+function allCards(subject = 'all') {
+  return Object.values(store.d.cards)
+    .filter((c) => subject === 'all' || c.subject === subject)
+    .sort(compareQ);
+}
+const cprog = (id) => store.d.cprog[id] || null;
+const isDue = (id) => { const p = cprog(id); return !!(p && p.due <= todayStr()); };
+function newLeftToday() {
+  const d = store.d.cday;
+  const used = d && d.date === todayStr() ? d.n : 0;
+  return Math.max(0, (store.d.ui.newPerDay || 10) - used);
+}
+function cardCounts(subject = 'all') {
+  const list = allCards(subject);
+  const due = list.filter((c) => isDue(c.id)).length;
+  const fresh = list.filter((c) => !cprog(c.id)).length;
+  return { total: list.length, due, fresh, newToday: Math.min(fresh, newLeftToday()) };
+}
+function cardStatus(id) {
+  const p = cprog(id);
+  if (!p) return ['new', '新規'];
+  const days = daysFromToday(p.due);
+  const when = days <= 0 ? '今日' : days === 1 ? '明日' : `${mdLabel(p.due)}`;
+  const lv = p.stage ? `${CARD_STEPS[Math.min(p.stage, CARD_STEPS.length) - 1]}日` : '再学習';
+  return [days <= 0 ? 'due' : 'ok', `${lv} ・ 次 ${when}`];
+}
+function currentCardSubject(list) {
+  const s = store.d.ui.cardSubject || 'all';
+  return s !== 'all' && !list.some((c) => c.subject === s) ? 'all' : s;
+}
+
+function startCards(mode, ids, pos = 0, subject = 'all') {
+  if (!ids.length) { toast('出せるカードがありません'); return; }
+  store.d.csession = { mode, subject, queue: ids, pos, cur: null, stats: { n: 0, ok: 0 } };
+  store.save();
+  go('#/cplay');
+}
+
+function viewCards() {
+  const all = allCards();
+  const sub = currentCardSubject(all);
+  const list = allCards(sub);
+  const k = cardCounts(sub);
+  const s = store.d.csession;
+  const chips = (() => {
+    const subs = subjectsPresent(all);
+    const items = [['all', 'すべて', all.length]].concat(subs.map((x) => [x, x, all.filter((c) => c.subject === x).length]));
+    return `<div class="chips" role="group" aria-label="科目で絞り込み">${items.map(([v, label, n]) =>
+      `<button class="chip" data-act="csubject" data-v="${esc(v)}" aria-pressed="${v === sub}">${esc(label)}<small>${n}</small></button>`).join('')}</div>`;
+  })();
+  let rows = '';
+  let g = null;
+  for (const c of list) {
+    const head = `${c.subject} ・ ${c.unit || 'その他'}`;
+    if (head !== g) { if (g) rows += '</ul>'; rows += `<h2 class="group-h">${esc(head)}</h2><ul class="qlist">`; g = head; }
+    const [cls, label] = cardStatus(c.id);
+    rows += `<li><button class="qrow" data-act="copen" data-id="${esc(c.id)}">
+      <span class="cst ${cls}">${esc(label)}</span>
+      <span class="body"><span class="src">${esc(c.name || '')}${c.denken ? '<span class="dk">電験</span>' : ''}</span>
+      <span class="snip">${esc(c.front)}</span></span></button></li>`;
+  }
+  if (g) rows += '</ul>';
+  const startN = k.due + k.newToday;
+  const moreNew = k.fresh - k.newToday;
+  app().innerHTML = `${topbar('公式カード', `${list.length}枚`)}
+    ${all.length ? chips : ''}
+    ${all.length ? `
+    <section class="stats" aria-label="今日のカード">
+      <div class="stat"><b>${k.due}</b><span>今日の復習</span></div>
+      <div class="stat"><b>${k.newToday}</b><span>新しいカード</span></div>
+      <div class="stat"><b>${list.filter((c) => cprog(c.id)).length}</b><span>学習済み</span></div>
+    </section>
+    ${s && s.queue && s.pos < s.queue.length ? `<button class="btn primary block" data-act="cresume">${I.resume}続きから（${s.pos + 1}/${s.queue.length}）</button><div style="height:8px"></div>` : ''}
+    <button class="btn ${s ? '' : 'primary'} block" data-act="cstart" ${startN ? '' : 'disabled'}>${I.resume}${startN ? `今日のカードを始める（復習 ${k.due}・新規 ${k.newToday}）` : '今日のカードは終わりました'}</button>
+    ${!k.newToday && moreNew > 0 ? `<div style="height:8px"></div><button class="btn block" data-act="cmore">新しいカードをあと ${Math.min(10, moreNew)} 枚学ぶ</button>` : ''}
+    <p class="lead" style="margin-top:12px">表の状況から公式を思い出し、4つの式から選びます。選ぶと裏（式・各文字の意味と単位・適用条件）が開きます。正解するたびに次の復習が 1→3→7→14→30 日後と延び、間違えると翌日に戻ります。<br>一覧のカードをタップすると練習できます（練習では復習日は変わりません）。</p>
+    ${rows}` : `<div class="empty">${I.book}<p>公式カードがありません。<br>設定から公式カードのファイル（cards_*.json）を取り込んでください。</p></div>`}`;
+  typeset(app());
+  $('[data-act="cresume"]')?.addEventListener('click', () => go('#/cplay'));
+  $('[data-act="cstart"]')?.addEventListener('click', () => {
+    const due = shuffle(list.filter((c) => isDue(c.id)).map((c) => c.id));
+    const fresh = list.filter((c) => !cprog(c.id)).slice(0, k.newToday).map((c) => c.id);
+    startCards('review', shuffle(due.concat(fresh)), 0, sub);
+  });
+  $('[data-act="cmore"]')?.addEventListener('click', () => {
+    const fresh = list.filter((c) => !cprog(c.id)).slice(0, 10).map((c) => c.id);
+    startCards('review', shuffle(fresh), 0, sub);
+  });
+  app().querySelectorAll('[data-act="copen"]').forEach((el) => el.addEventListener('click', () => {
+    const ids = list.map((c) => c.id);
+    startCards('practice', ids, Math.max(0, ids.indexOf(el.dataset.id)), sub);
+  }));
+}
+
+function cardBackHTML(c) {
+  const vars = (c.vars || []).filter((v) => v && v[0]);
+  const m = (s) => (/\$/.test(s) ? inlineRich(s) : esc(s));
+  return `<section class="cback" aria-label="カードの裏">
+    <div class="cname">${m(c.name || '')}${c.denken ? '<span class="dk">電験で使う</span>' : ''}</div>
+    <div class="cformula">${inlineRich(c.formula || '')}</div>
+    ${vars.length ? `<table class="cvars"><tbody>${vars.map(([sym, mean, unit]) =>
+      `<tr><th>$${esc(sym)}$</th><td>${m(mean || '')}</td><td class="u">${unit ? `[${esc(unit)}]` : ''}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${c.conditions ? `<div class="ccond"><b>適用条件</b>${inlineRich(c.conditions)}</div>` : ''}
+    ${c.note ? `<p class="cnote">${inlineRich(c.note)}</p>` : ''}
+  </section>`;
+}
+
+function viewCardPlay() {
+  const s = store.d.csession;
+  if (!s) { go('#/cards'); return; }
+  let guard = 0;
+  while (s.pos < s.queue.length && !store.d.cards[s.queue[s.pos]] && guard++ < 10000) s.pos++;
+  if (s.pos >= s.queue.length) { finishCards(); return; }
+  const id = s.queue[s.pos];
+  const c = store.d.cards[id];
+  if (!s.cur || s.cur.id !== id) {
+    s.cur = { id, order: shuffle(c.choices.map((_, i) => i)), pick: null, msg: '' };
+    store.save();
+  }
+  const cur = s.cur;
+  const done = cur.pick != null;
+  const isLast = s.pos + 1 >= s.queue.length;
+  const btns = cur.order.map((ci, pos) => {
+    let cls = 'choice';
+    let mk = '';
+    if (done) {
+      if (ci === c.answer) { cls += ' is-answer'; mk = '○'; }
+      else if (ci === cur.pick) { cls += ' is-wrong'; mk = '×'; }
+      else cls += ' dim';
+    }
+    return `<button class="${cls}" data-act="cpick" data-c="${ci}" ${done ? 'disabled' : ''}>
+      <span class="k">${KANA[pos]}</span><span class="v">${choiceHTML(c.choices[ci])}</span><span class="mk">${mk}</span></button>`;
+  }).join('');
+  const ok = done && cur.pick === c.answer;
+  app().innerHTML = `${topbar(s.mode === 'practice' ? '公式カード（練習）' : '公式カード', `${s.pos + 1} / ${s.queue.length}`, '', '#/cards')}
+    <div class="meta"><span class="tag">${esc(c.subject)}</span>${c.unit ? `<span>${esc(c.unit)}</span>` : ''}<span class="cst ${cardStatus(id)[0]}">${esc(cardStatus(id)[1])}</span></div>
+    <article class="qtext cfront">${rich(c.front)}</article>
+    <section class="blank" aria-label="選択肢"><div class="choices">${btns}</div></section>
+    ${done ? `<div class="result ${ok ? 'ok' : 'ng'}" id="result"><span class="big">${ok ? '○' : '×'}</span>
+      <div><b>${ok ? '正解' : '不正解'}</b><span>${esc(cur.msg)}</span></div></div>
+      ${cardBackHTML(c)}` : ''}
+    <div class="actionbar"><div class="inner">${done
+      ? `<button class="btn primary" data-act="cnext">${isLast ? '終わる' : '次へ'}${I.next}</button>`
+      : '<span class="grow"></span>'}</div></div>`;
+  typeset(app());
+  app().querySelectorAll('[data-act="cpick"]').forEach((el) => el.addEventListener('click', () => {
+    if (cur.pick != null) return;
+    cur.pick = +el.dataset.c;
+    const right = cur.pick === c.answer;
+    s.stats.n += 1;
+    if (right) s.stats.ok += 1;
+    if (s.mode === 'review') {
+      const t = todayStr();
+      const p = store.d.cprog[id] || { stage: 0, n: 0, ok: 0, isNew: true };
+      if (p.isNew) {
+        const d = store.d.cday && store.d.cday.date === t ? store.d.cday : { date: t, n: 0 };
+        d.n += 1; store.d.cday = d; delete p.isNew;
+      }
+      p.n += 1;
+      if (right) {
+        p.ok += 1;
+        p.stage = Math.min((p.stage || 0) + 1, CARD_STEPS.length);
+        const days = CARD_STEPS[p.stage - 1];
+        p.due = addDays(t, days);
+        cur.msg = `次の復習は ${days} 日後（${mdLabel(p.due)}）`;
+      } else {
+        p.stage = 0;
+        p.due = addDays(t, 1);
+        cur.msg = `明日（${mdLabel(p.due)}）もう一度出ます`;
+      }
+      p.last = right ? 'ok' : 'ng';
+      store.d.cprog[id] = p;
+    } else {
+      cur.msg = '練習なので復習日は変わりません';
+    }
+    store.save();
+    const y = window.scrollY;
+    viewCardPlay();
+    window.scrollTo(0, y);
+    const r = document.getElementById('result');
+    if (r) { const rect = r.getBoundingClientRect(); if (rect.top > window.innerHeight * 0.5) window.scrollTo({ top: window.scrollY + rect.top - 90, behavior: 'smooth' }); }
+  }));
+  $('[data-act="cnext"]')?.addEventListener('click', () => {
+    s.pos += 1; s.cur = null; store.save();
+    if (s.pos >= s.queue.length) { finishCards(); return; }
+    viewCardPlay(); window.scrollTo(0, 0);
+  });
+}
+
+function finishCards() {
+  const s = store.d.csession;
+  if (s) { store.d.clast = { mode: s.mode, stats: s.stats, n: s.queue.length }; store.d.csession = null; store.save(); }
+  go('#/cdone');
+}
+function viewCardDone() {
+  const l = store.d.clast;
+  if (!l) { go('#/cards'); return; }
+  const k = cardCounts();
+  app().innerHTML = `${topbar('おつかれさまでした', '', '', '#/cards')}
+    <div class="done">
+      <p>${l.mode === 'practice' ? '公式カードの練習' : '今日の公式カード'}が終わりました</p>
+      <div class="ring">${l.stats.ok} / ${l.stats.n}</div>
+      <p>正答率 ${pct(l.stats.ok, l.stats.n)}%</p>
+      <div class="btns">
+        ${k.due ? `<a class="btn primary" href="#/cards">${I.book}残りの復習（${k.due}枚）へ</a>` : ''}
+        <a class="btn" href="#/cards">${I.book}公式カードへ戻る</a>
+        <a class="btn" href="#/">トップへ戻る</a>
+      </div>
+    </div>`;
+}
+
+function validateCard(c, i) {
+  const where = `${i + 1}枚目${c && c.id ? `（${c.id}）` : ''}`;
+  if (!c || typeof c !== 'object' || !c.id) return `${where}: id がありません`;
+  if (!c.front) return `${where}: front（表）がありません`;
+  if (!Array.isArray(c.choices) || c.choices.length < 2) return `${where}: 選択肢が足りません`;
+  if (!Number.isInteger(c.answer) || c.answer < 0 || c.answer >= c.choices.length) return `${where}: 正解番号が正しくありません`;
+  return null;
+}
+function importCards(list) {
+  const errors = [];
+  let added = 0; let updated = 0;
+  list.forEach((c, i) => {
+    const err = validateCard(c, i);
+    if (err) { errors.push(err); return; }
+    const clean = {
+      id: String(c.id), subject: String(c.subject || 'その他'), unit: c.unit ? String(c.unit) : '',
+      order: Number.isFinite(c.order) ? c.order : undefined, front: String(c.front),
+      choices: c.choices.map(String), answer: c.answer, name: c.name ? String(c.name) : '',
+      formula: c.formula ? String(c.formula) : String(c.choices[c.answer]),
+      vars: Array.isArray(c.vars) ? c.vars.filter(Array.isArray).map((v) => v.slice(0, 3).map((x) => String(x ?? ''))) : [],
+      conditions: c.conditions ? String(c.conditions) : '', note: c.note ? String(c.note) : '', denken: c.denken === true,
+    };
+    if (store.d.cards[clean.id]) updated++; else added++;
+    store.d.cards[clean.id] = clean;
+  });
+  if (!store.save()) return;
+  const msg = `公式カードを取り込みました：新規 ${added}枚 ／ 更新 ${updated}枚${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
+  if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}`); else toast(msg);
+  viewSettings();
+}
+
 /* ---------- settings ---------- */
 function viewSettings() {
   const qs = allQ();
@@ -759,7 +1032,7 @@ function viewSettings() {
       <label class="btn primary block">${I.upload}ファイルを選ぶ<input type="file" accept=".json,application/json,text/plain" class="visually-hidden" data-act="import-file"></label>
       <details>
         <summary>テキストを貼り付けて取り込む</summary>
-        <textarea data-act="import-text" placeholder='{"format":"denken3-drill/v1","questions":[...]}'></textarea>
+        <textarea data-act="import-text" placeholder='{"format":"denken3-drill/v1","questions":[...]} または公式カード（cards-v1）'></textarea>
         <div style="height:8px"></div>
         <button class="btn block" data-act="import-paste">貼り付けた内容を取り込む</button>
       </details>
@@ -768,6 +1041,13 @@ function viewSettings() {
     <section class="section">
       <h2>収録状況</h2>
       ${qs.length ? `<dl class="kv">${bySub}<dt>合計</dt><dd>${qs.length}問</dd></dl>` : '<p>まだ問題がありません。</p>'}
+    </section>
+
+    <section class="section">
+      <h2>公式カード</h2>
+      <p>収録 ${Object.keys(store.d.cards).length}枚。1日に出す新しいカードの枚数：</p>
+      <div class="chips" role="group" aria-label="新しいカードの枚数">${[5, 10, 20, 30].map((n) =>
+        `<button class="chip" data-act="newperday" data-v="${n}" aria-pressed="${(store.d.ui.newPerDay || 10) === n}">${n}枚</button>`).join('')}</div>
     </section>
 
     <section class="section">
@@ -781,7 +1061,7 @@ function viewSettings() {
 
     <section class="section">
       <h2>リセット</h2>
-      <p>「学習記録だけ消す」は問題を残したまま、正誤・苦手克服・続きからの記録を消します。</p>
+      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの復習日の記録を消します。</p>
       <div class="row">
         <button class="btn danger" data-act="reset-progress">学習記録だけ消す</button>
         <button class="btn danger" data-act="reset-all">すべて消す</button>
@@ -802,8 +1082,12 @@ function viewSettings() {
   $('[data-act="reset-progress"]').addEventListener('click', () => {
     if (!confirm('学習記録（正誤・苦手克服・続きから）を消します。ブックマークと問題は残ります。よろしいですか？')) return;
     store.d.progress = {}; store.d.session = null; store.d.lastSession = null;
+    store.d.cprog = {}; store.d.cday = null; store.d.csession = null; store.d.clast = null;
     store.save(); toast('学習記録を消しました'); viewSettings();
   });
+  app().querySelectorAll('[data-act="newperday"]').forEach((el) => el.addEventListener('click', () => {
+    store.d.ui.newPerDay = +el.dataset.v; store.save(); viewSettings();
+  }));
   $('[data-act="reset-all"]').addEventListener('click', () => {
     if (!confirm('問題・学習記録・ブックマークをすべて消します。元に戻せません。よろしいですか？')) return;
     store.d = normalize(null); store.save(); toast('すべてのデータを消しました'); viewSettings();
@@ -828,6 +1112,10 @@ function importText(text) {
   let data;
   try { data = JSON.parse(String(text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); }
   catch (e) { toast('ファイルを読み取れませんでした（JSON形式ではありません）'); return; }
+  if (data && data.format === 'denken3-drill/cards-v1') {
+    if (!Array.isArray(data.cards) || !data.cards.length) { toast('カードが見つかりませんでした'); return; }
+    importCards(data.cards); return;
+  }
   if (data && data.format === 'denken3-drill/backup-v1') { toast('これはバックアップファイルです。「バックアップ → 読み込む」から読み込んでください'); return; }
   const list = Array.isArray(data) ? data : data && data.questions;
   if (!Array.isArray(list) || !list.length) { toast('問題が見つかりませんでした'); return; }
@@ -905,6 +1193,9 @@ const routes = {
   resume: () => { if (store.d.session) go('#/play'); else go('#/'); },
   done: viewDone,
   settings: viewSettings,
+  cards: viewCards,
+  cplay: viewCardPlay,
+  cdone: viewCardDone,
 };
 function render() {
   app().style.paddingBottom = '';
@@ -921,7 +1212,9 @@ document.addEventListener('click', (e) => {
   if (act === 'bm') { e.preventDefault(); toggleBookmark(el.dataset.id); }
   else if (act === 'zoom') { if (!el.closest('.choice')) openZoom(el); }
   else if (act === 'prev') { prevQuestion(); }
-  else if (act === 'mode') {
+  else if (act === 'csubject') {
+    store.d.ui.cardSubject = el.dataset.v; store.save(); render();
+  } else if (act === 'mode') {
     if (store.d.ui.mode === el.dataset.v) return;
     store.d.ui.mode = el.dataset.v; store.save();
     viewPlay(); window.scrollTo(0, 0);
