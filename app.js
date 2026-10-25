@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.9.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -49,11 +49,10 @@ function normalize(raw) {
     bookmarks: Array.isArray(d.bookmarks) ? d.bookmarks : [],
     session: d.session || null,
     lastSession: d.lastSession || null,
-    ui: Object.assign({ subject: 'all', mode: 'output', cardSubject: 'all', newPerDay: 10 }, d.ui || {}), // mode: output（演習）/ input（暗記）
+    ui: Object.assign({ subject: 'all', mode: 'output', cardSubject: 'all' }, d.ui || {}), // mode: output（演習）/ input（暗記）
     // 公式カード
     cards: d.cards && typeof d.cards === 'object' ? d.cards : {},
     cprog: d.cprog && typeof d.cprog === 'object' ? d.cprog : {},
-    cday: d.cday || null,
     csession: d.csession || null,
     clast: d.clast || null,
   };
@@ -335,8 +334,8 @@ function viewHome() {
       <a class="menu-item" href="#/random" aria-disabled="${!qs.length}">
         <span class="ic">${I.shuffle}</span><span class="tx"><b>ランダム演習</b><span>区切りなく次々に出題</span></span></a>
       <a class="menu-item" href="#/cards">
-        <span class="ic">${I.book}</span><span class="tx"><b>公式カード</b><span>${ck.total ? `今日の復習 ${ck.due}枚・新規 ${ck.newToday}枚` : 'カードを取り込むと使えます'}</span></span>
-        <span class="badge ${ck.due + ck.newToday ? 'ng' : ''}">${ck.due + ck.newToday}</span></a>
+        <span class="ic">${I.book}</span><span class="tx"><b>公式カード</b><span>${ck.total ? `学習済み ${ck.learned} / ${ck.total}枚` : 'カードを取り込むと使えます'}</span></span>
+        <span class="badge">${ck.total}</span></a>
     </nav>
     ${installHTML()}
   `;
@@ -760,59 +759,40 @@ function viewDone() {
 }
 
 /* =========================================================
-   公式カード（間隔反復）
+   公式カード
    表：状況・条件 → 4択 → 裏：公式名・式・各文字の意味と単位・適用条件
-   正解で 1→3→7→14→30 日後へ、不正解は翌日に戻す。演習の記録とは別に管理する。
+   一覧から選んで順に解く／学習済み（1回でも解いた）カードをシャッフルで出し続ける。
+   演習の記録とは別に、カードごとの正誤（回数・直近）だけを記録する。
    ========================================================= */
-const CARD_STEPS = [1, 3, 7, 14, 30];
-const pad2 = (n) => String(n).padStart(2, '0');
-const ymd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const todayStr = () => ymd(new Date());
-function addDays(str, n) {
-  const [y, m, d] = str.split('-').map(Number);
-  return ymd(new Date(y, m - 1, d + n));
-}
-function daysFromToday(str) {
-  const [y, m, d] = str.split('-').map(Number);
-  const [ty, tm, td] = todayStr().split('-').map(Number);
-  return Math.round((new Date(y, m - 1, d) - new Date(ty, tm - 1, td)) / 86400000);
-}
-const mdLabel = (str) => { const [, m, d] = str.split('-').map(Number); return `${m}/${d}`; };
-
 function allCards(subject = 'all') {
   return Object.values(store.d.cards)
     .filter((c) => subject === 'all' || c.subject === subject)
     .sort(compareQ);
 }
 const cprog = (id) => store.d.cprog[id] || null;
-const isDue = (id) => { const p = cprog(id); return !!(p && p.due <= todayStr()); };
-function newLeftToday() {
-  const d = store.d.cday;
-  const used = d && d.date === todayStr() ? d.n : 0;
-  return Math.max(0, (store.d.ui.newPerDay || 10) - used);
-}
+const isLearned = (id) => !!(cprog(id) && cprog(id).n > 0);
 function cardCounts(subject = 'all') {
   const list = allCards(subject);
-  const due = list.filter((c) => isDue(c.id)).length;
-  const fresh = list.filter((c) => !cprog(c.id)).length;
-  return { total: list.length, due, fresh, newToday: Math.min(fresh, newLeftToday()) };
+  return { total: list.length, learned: list.filter((c) => isLearned(c.id)).length };
 }
 function cardStatus(id) {
   const p = cprog(id);
-  if (!p) return ['new', '新規'];
-  const days = daysFromToday(p.due);
-  const when = days <= 0 ? '今日' : days === 1 ? '明日' : `${mdLabel(p.due)}`;
-  const lv = p.stage ? `${CARD_STEPS[Math.min(p.stage, CARD_STEPS.length) - 1]}日` : '再学習';
-  return [days <= 0 ? 'due' : 'ok', `${lv} ・ 次 ${when}`];
+  if (!p || !p.n) return ['new', '未学習'];
+  return p.last === 'ok' ? ['ok', `○ ${p.ok}/${p.n}`] : ['ng', `× ${p.ok}/${p.n}`];
 }
 function currentCardSubject(list) {
   const s = store.d.ui.cardSubject || 'all';
   return s !== 'all' && !list.some((c) => c.subject === s) ? 'all' : s;
 }
+function learnedQueue(subject, avoidFirst) {
+  const q = shuffle(allCards(subject).filter((c) => isLearned(c.id)).map((c) => c.id));
+  if (q.length > 1 && q[0] === avoidFirst) [q[0], q[1]] = [q[1], q[0]];
+  return q;
+}
 
 function startCards(mode, ids, pos = 0, subject = 'all') {
   if (!ids.length) { toast('出せるカードがありません'); return; }
-  store.d.csession = { mode, subject, queue: ids, pos, cur: null, stats: { n: 0, ok: 0 } };
+  store.d.csession = { mode, subject, queue: ids, pos, count: 0, cur: null, stats: { n: 0, ok: 0 } };
   store.save();
   go('#/cplay');
 }
@@ -841,35 +821,22 @@ function viewCards() {
       <span class="snip">${esc(c.front)}</span></span></button></li>`;
   }
   if (g) rows += '</ul>';
-  const startN = k.due + k.newToday;
-  const moreNew = k.fresh - k.newToday;
-  app().innerHTML = `${topbar('公式カード', `${list.length}枚`)}
-    ${all.length ? chips : ''}
-    ${all.length ? `
-    <section class="stats" aria-label="今日のカード">
-      <div class="stat"><b>${k.due}</b><span>今日の復習</span></div>
-      <div class="stat"><b>${k.newToday}</b><span>新しいカード</span></div>
-      <div class="stat"><b>${list.filter((c) => cprog(c.id)).length}</b><span>学習済み</span></div>
-    </section>
-    ${s && s.queue && s.pos < s.queue.length ? `<button class="btn primary block" data-act="cresume">${I.resume}続きから（${s.pos + 1}/${s.queue.length}）</button><div style="height:8px"></div>` : ''}
-    <button class="btn ${s ? '' : 'primary'} block" data-act="cstart" ${startN ? '' : 'disabled'}>${I.resume}${startN ? `今日のカードを始める（復習 ${k.due}・新規 ${k.newToday}）` : '今日のカードは終わりました'}</button>
-    ${!k.newToday && moreNew > 0 ? `<div style="height:8px"></div><button class="btn block" data-act="cmore">新しいカードをあと ${Math.min(10, moreNew)} 枚学ぶ</button>` : ''}
-    <p class="lead" style="margin-top:12px">表の状況から公式を思い出し、4つの式から選びます。選ぶと裏（式・各文字の意味と単位・適用条件）が開きます。正解するたびに次の復習が 1→3→7→14→30 日後と延び、間違えると翌日に戻ります。<br>一覧のカードをタップすると練習できます（練習では復習日は変わりません）。</p>
-    ${rows}` : `<div class="empty">${I.book}<p>公式カードがありません。<br>設定から公式カードのファイル（cards_*.json）を取り込んでください。</p></div>`}`;
+  let resume = '';
+  if (s && s.queue && s.queue.length && (s.mode === 'shuffle' || s.pos < s.queue.length)) {
+    resume = `<button class="btn block" data-act="cresume">${I.resume}続きから（${s.mode === 'shuffle' ? 'シャッフル' : `${s.pos + 1}/${s.queue.length}`}）</button><div style="height:8px"></div>`;
+  }
+  app().innerHTML = `${topbar('公式カード', `学習済み ${k.learned} / ${k.total}枚`)}
+    ${all.length ? `${chips}
+      ${resume}
+      <button class="btn primary block" data-act="cshuffle" ${k.learned ? '' : 'disabled'}>${I.shuffle}${k.learned ? `シャッフル（学習済み ${k.learned}枚）` : 'シャッフル（学習済みのカードがありません）'}</button>
+      <div style="height:12px"></div>
+      ${rows}` : `<div class="empty">${I.book}<p>公式カードがありません。<br>設定から公式カードのファイル（cards_*.json）を取り込んでください。</p></div>`}`;
   typeset(app());
   $('[data-act="cresume"]')?.addEventListener('click', () => go('#/cplay'));
-  $('[data-act="cstart"]')?.addEventListener('click', () => {
-    const due = shuffle(list.filter((c) => isDue(c.id)).map((c) => c.id));
-    const fresh = list.filter((c) => !cprog(c.id)).slice(0, k.newToday).map((c) => c.id);
-    startCards('review', shuffle(due.concat(fresh)), 0, sub);
-  });
-  $('[data-act="cmore"]')?.addEventListener('click', () => {
-    const fresh = list.filter((c) => !cprog(c.id)).slice(0, 10).map((c) => c.id);
-    startCards('review', shuffle(fresh), 0, sub);
-  });
+  $('[data-act="cshuffle"]')?.addEventListener('click', () => startCards('shuffle', learnedQueue(sub), 0, sub));
   app().querySelectorAll('[data-act="copen"]').forEach((el) => el.addEventListener('click', () => {
     const ids = list.map((c) => c.id);
-    startCards('practice', ids, Math.max(0, ids.indexOf(el.dataset.id)), sub);
+    startCards('list', ids, Math.max(0, ids.indexOf(el.dataset.id)), sub);
   }));
 }
 
@@ -889,18 +856,24 @@ function cardBackHTML(c) {
 function viewCardPlay() {
   const s = store.d.csession;
   if (!s) { go('#/cards'); return; }
+  const shuffleMode = s.mode === 'shuffle';
   let guard = 0;
   while (s.pos < s.queue.length && !store.d.cards[s.queue[s.pos]] && guard++ < 10000) s.pos++;
-  if (s.pos >= s.queue.length) { finishCards(); return; }
+  if (s.pos >= s.queue.length) {
+    if (shuffleMode) {
+      s.queue = learnedQueue(s.subject, s.queue[s.queue.length - 1]); s.pos = 0;
+      if (!s.queue.length) { finishCards(); return; }
+    } else { finishCards(); return; }
+  }
   const id = s.queue[s.pos];
   const c = store.d.cards[id];
   if (!s.cur || s.cur.id !== id) {
-    s.cur = { id, order: shuffle(c.choices.map((_, i) => i)), pick: null, msg: '' };
+    s.cur = { id, order: shuffle(c.choices.map((_, i) => i)), pick: null };
     store.save();
   }
   const cur = s.cur;
   const done = cur.pick != null;
-  const isLast = s.pos + 1 >= s.queue.length;
+  const isLast = !shuffleMode && s.pos + 1 >= s.queue.length;
   const btns = cur.order.map((ci, pos) => {
     let cls = 'choice';
     let mk = '';
@@ -913,12 +886,14 @@ function viewCardPlay() {
       <span class="k">${KANA[pos]}</span><span class="v">${choiceHTML(c.choices[ci])}</span><span class="mk">${mk}</span></button>`;
   }).join('');
   const ok = done && cur.pick === c.answer;
-  app().innerHTML = `${topbar(s.mode === 'practice' ? '公式カード（練習）' : '公式カード', `${s.pos + 1} / ${s.queue.length}`, '', '#/cards')}
-    <div class="meta"><span class="tag">${esc(c.subject)}</span>${c.unit ? `<span>${esc(c.unit)}</span>` : ''}<span class="cst ${cardStatus(id)[0]}">${esc(cardStatus(id)[1])}</span></div>
+  const counter = shuffleMode ? `${(s.count || 0) + 1}枚目 ・ 正解 ${s.stats.ok}` : `${s.pos + 1} / ${s.queue.length}`;
+  const [stc, stl] = cardStatus(id);
+  app().innerHTML = `${topbar(shuffleMode ? '公式カード（シャッフル）' : '公式カード', counter, '', '#/cards')}
+    <div class="meta"><span class="tag">${esc(c.subject)}</span>${c.unit ? `<span>${esc(c.unit)}</span>` : ''}<span class="cst ${stc}">${esc(stl)}</span></div>
     <article class="qtext cfront">${rich(c.front)}</article>
     <section class="blank" aria-label="選択肢"><div class="choices">${btns}</div></section>
     ${done ? `<div class="result ${ok ? 'ok' : 'ng'}" id="result"><span class="big">${ok ? '○' : '×'}</span>
-      <div><b>${ok ? '正解' : '不正解'}</b><span>${esc(cur.msg)}</span></div></div>
+      <div><b>${ok ? '正解' : '不正解'}</b></div></div>
       ${cardBackHTML(c)}` : ''}
     <div class="actionbar"><div class="inner">${done
       ? `<button class="btn primary" data-act="cnext">${isLast ? '終わる' : '次へ'}${I.next}</button>`
@@ -930,30 +905,12 @@ function viewCardPlay() {
     const right = cur.pick === c.answer;
     s.stats.n += 1;
     if (right) s.stats.ok += 1;
-    if (s.mode === 'review') {
-      const t = todayStr();
-      const p = store.d.cprog[id] || { stage: 0, n: 0, ok: 0, isNew: true };
-      if (p.isNew) {
-        const d = store.d.cday && store.d.cday.date === t ? store.d.cday : { date: t, n: 0 };
-        d.n += 1; store.d.cday = d; delete p.isNew;
-      }
-      p.n += 1;
-      if (right) {
-        p.ok += 1;
-        p.stage = Math.min((p.stage || 0) + 1, CARD_STEPS.length);
-        const days = CARD_STEPS[p.stage - 1];
-        p.due = addDays(t, days);
-        cur.msg = `次の復習は ${days} 日後（${mdLabel(p.due)}）`;
-      } else {
-        p.stage = 0;
-        p.due = addDays(t, 1);
-        cur.msg = `明日（${mdLabel(p.due)}）もう一度出ます`;
-      }
-      p.last = right ? 'ok' : 'ng';
-      store.d.cprog[id] = p;
-    } else {
-      cur.msg = '練習なので復習日は変わりません';
-    }
+    const p = store.d.cprog[id] || {};
+    p.n = (p.n || 0) + 1;
+    p.ok = (p.ok || 0) + (right ? 1 : 0);
+    p.last = right ? 'ok' : 'ng';
+    p.at = Date.now();
+    store.d.cprog[id] = { n: p.n, ok: p.ok, last: p.last, at: p.at };
     store.save();
     const y = window.scrollY;
     viewCardPlay();
@@ -962,8 +919,8 @@ function viewCardPlay() {
     if (r) { const rect = r.getBoundingClientRect(); if (rect.top > window.innerHeight * 0.5) window.scrollTo({ top: window.scrollY + rect.top - 90, behavior: 'smooth' }); }
   }));
   $('[data-act="cnext"]')?.addEventListener('click', () => {
-    s.pos += 1; s.cur = null; store.save();
-    if (s.pos >= s.queue.length) { finishCards(); return; }
+    s.pos += 1; s.count = (s.count || 0) + 1; s.cur = null; store.save();
+    if (!shuffleMode && s.pos >= s.queue.length) { finishCards(); return; }
     viewCardPlay(); window.scrollTo(0, 0);
   });
 }
@@ -976,15 +933,13 @@ function finishCards() {
 function viewCardDone() {
   const l = store.d.clast;
   if (!l) { go('#/cards'); return; }
-  const k = cardCounts();
   app().innerHTML = `${topbar('おつかれさまでした', '', '', '#/cards')}
     <div class="done">
-      <p>${l.mode === 'practice' ? '公式カードの練習' : '今日の公式カード'}が終わりました</p>
+      <p>公式カードが終わりました</p>
       <div class="ring">${l.stats.ok} / ${l.stats.n}</div>
       <p>正答率 ${pct(l.stats.ok, l.stats.n)}%</p>
       <div class="btns">
-        ${k.due ? `<a class="btn primary" href="#/cards">${I.book}残りの復習（${k.due}枚）へ</a>` : ''}
-        <a class="btn" href="#/cards">${I.book}公式カードへ戻る</a>
+        <a class="btn primary" href="#/cards">${I.book}公式カードへ戻る</a>
         <a class="btn" href="#/">トップへ戻る</a>
       </div>
     </div>`;
@@ -1045,9 +1000,7 @@ function viewSettings() {
 
     <section class="section">
       <h2>公式カード</h2>
-      <p>収録 ${Object.keys(store.d.cards).length}枚。1日に出す新しいカードの枚数：</p>
-      <div class="chips" role="group" aria-label="新しいカードの枚数">${[5, 10, 20, 30].map((n) =>
-        `<button class="chip" data-act="newperday" data-v="${n}" aria-pressed="${(store.d.ui.newPerDay || 10) === n}">${n}枚</button>`).join('')}</div>
+      <p>収録 ${Object.keys(store.d.cards).length}枚（学習済み ${cardCounts().learned}枚）</p>
     </section>
 
     <section class="section">
@@ -1061,7 +1014,7 @@ function viewSettings() {
 
     <section class="section">
       <h2>リセット</h2>
-      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの復習日の記録を消します。</p>
+      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの正誤の記録を消します。</p>
       <div class="row">
         <button class="btn danger" data-act="reset-progress">学習記録だけ消す</button>
         <button class="btn danger" data-act="reset-all">すべて消す</button>
@@ -1082,12 +1035,9 @@ function viewSettings() {
   $('[data-act="reset-progress"]').addEventListener('click', () => {
     if (!confirm('学習記録（正誤・苦手克服・続きから）を消します。ブックマークと問題は残ります。よろしいですか？')) return;
     store.d.progress = {}; store.d.session = null; store.d.lastSession = null;
-    store.d.cprog = {}; store.d.cday = null; store.d.csession = null; store.d.clast = null;
+    store.d.cprog = {}; store.d.csession = null; store.d.clast = null;
     store.save(); toast('学習記録を消しました'); viewSettings();
   });
-  app().querySelectorAll('[data-act="newperday"]').forEach((el) => el.addEventListener('click', () => {
-    store.d.ui.newPerDay = +el.dataset.v; store.save(); viewSettings();
-  }));
   $('[data-act="reset-all"]').addEventListener('click', () => {
     if (!confirm('問題・学習記録・ブックマークをすべて消します。元に戻せません。よろしいですか？')) return;
     store.d = normalize(null); store.save(); toast('すべてのデータを消しました'); viewSettings();
