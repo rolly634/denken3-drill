@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.6.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -20,6 +20,7 @@ const I = {
   target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg>',
   shuffle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h4v4M4 20l16-16M20 16v4h-4M15 15l5 5M4 4l5 5"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
@@ -408,6 +409,7 @@ function ensureCur(s) {
 }
 
 function viewPlay() {
+  app().style.paddingBottom = '';
   const s = store.d.session;
   if (!s) { go('#/'); return; }
   const q = ensureCur(s);
@@ -415,37 +417,56 @@ function viewPlay() {
   const c = s.cur;
   const multi = q.blanks.length > 1;
   const labels = q.blanks.map((b, i) => (b.label != null ? String(b.label) : String(i + 1)));
-  const inText = new Set();
-  const textHTML = rich(q.text, (k) => {
-    const bi = labels.indexOf(k);
-    inText.add(k);
-    if (c.graded && bi >= 0) {
-      const b = q.blanks[bi];
-      const ans = b.choices[b.answer];
-      return `<span class="slot ${c.results[bi] ? 'ok' : 'ng'}">${esc(k)}<b>${isSvg(ans) ? '（図）' : esc(ans)}</b></span>`;
-    }
-    return `<span class="slot">${esc(k)}</span>`;
-  });
-
   const counter = s.endless
     ? `${(s.count || 0) + 1}問目 ・ 正解 ${s.stats.ok}`
     : `${s.pos + 1} / ${s.queue.length}`;
   if (store.d.ui.mode === 'input') { viewInput(s, q, counter); return; }
+  if (c.active === undefined) c.active = null;
 
-  const blanksHTML = q.blanks.map((b, bi) => {
+  /* 空欄ボタン：タップで下から選択肢パネルを開く */
+  const slotBtn = (bi, labelText, extraCls = '') => {
+    const b = q.blanks[bi];
+    let cls = `slot tap ${extraCls}`;
+    let inner = labelText ? `<span class="sl">${esc(labelText)}</span>` : '';
+    if (c.graded) {
+      const ok = c.results[bi];
+      cls += ok ? ' ok' : ' ng';
+      inner += `<b>${choiceHTML(b.choices[b.answer])}</b>`;
+    } else if (c.picks[bi] != null) {
+      cls += ' filled';
+      inner += `<b>${choiceHTML(b.choices[c.picks[bi]])}</b>`;
+    }
+    if (c.active === bi) cls += ' active';
+    return `<button class="${cls}" data-act="slot" data-b="${bi}" aria-label="空欄 ${esc(labels[bi])}">${inner}</button>`;
+  };
+  const inText = new Set();
+  const textHTML = rich(q.text, (k) => {
+    const bi = labels.indexOf(k);
+    if (bi < 0) return `<span class="slot">${esc(k)}</span>`;
+    inText.add(bi);
+    return slotBtn(bi, k);
+  });
+  // 文中に空欄がない解答欄は、問題の下に解答欄を置く
+  const rest = q.blanks.map((_, bi) => bi).filter((bi) => !inText.has(bi));
+  const single = rest.length === 1 && q.blanks.length === 1;
+  const restHTML = rest.length ? `<section class="answers" aria-label="解答欄">${rest.map((bi) => {
+    const b = q.blanks[bi];
+    const head = b.prompt ? inlineRich(b.prompt) : (single ? '答え' : `解答欄 ${esc(labels[bi])}`);
+    const ph = !c.graded && c.picks[bi] == null ? '<span class="ph">タップして選ぶ</span>' : '';
+    return `<div class="ans-row"><div class="ans-h">${head}</div>${slotBtn(bi, single ? '' : labels[bi], 'wide').replace('</button>', `${ph}</button>`)}</div>`;
+  }).join('')}</section>` : '';
+
+  /* 選択肢パネル */
+  let sheetHTML = '';
+  if (c.active != null && q.blanks[c.active]) {
+    const bi = c.active;
+    const b = q.blanks[bi];
     const order = c.orders[bi];
     const longest = Math.max(...b.choices.map((t) => t.length));
     const cols2 = !b.choices.some((t) => t.includes('$') || isSvg(t)) && ((b.choices.length === 4 && longest <= 6) || (b.choices.length === 2 && longest <= 12));
-    let head = '';
-    if (multi || b.prompt) {
-      const lab = labels[bi];
-      const showLab = multi && inText.has(lab);
-      const res = c.graded ? `<span class="res ${c.results[bi] ? 'ok' : 'ng'}">${c.results[bi] ? '○ 正解' : '× 不正解'}</span>` : '';
-      // 文中に空欄がある → ラベル表示（補足があれば下に）／ 文中にない → 設問文を見出しに
-      const title = (showLab || !b.prompt) ? `<span class="lbl">${esc(lab)}</span>` : `<span>${inlineRich(b.prompt)}</span>`;
-      head = `<div class="blank-h">${title}${res}</div>
-        ${showLab && b.prompt ? `<p class="prompt">${inlineRich(b.prompt)}</p>` : ''}`;
-    }
+    const title = inText.has(bi) ? `空欄 <span class="lbl">${esc(labels[bi])}</span>` : (b.prompt ? inlineRich(b.prompt) : (single ? '答え' : `解答欄 <span class="lbl">${esc(labels[bi])}</span>`));
+    const sub = inText.has(bi) && b.prompt ? `<p class="prompt">${inlineRich(b.prompt)}</p>` : '';
+    const res = c.graded ? `<span class="res ${c.results[bi] ? 'ok' : 'ng'}">${c.results[bi] ? '○ 正解' : '× 不正解'}</span>` : '';
     const btns = order.map((ci, pos) => {
       let cls = 'choice';
       let mk = '';
@@ -457,8 +478,10 @@ function viewPlay() {
       return `<button class="${cls}" data-act="pick" data-b="${bi}" data-c="${ci}" ${c.graded ? 'disabled' : ''} aria-pressed="${c.picks[bi] === ci}">
         <span class="k">${KANA[pos]}</span><span class="v">${choiceHTML(b.choices[ci])}</span><span class="mk">${mk}</span></button>`;
     }).join('');
-    return `<section class="blank" aria-label="${multi ? `空欄 ${esc(labels[bi])}` : '選択肢'}">${head}<div class="choices ${cols2 ? 'cols2' : ''}">${btns}</div></section>`;
-  }).join('');
+    sheetHTML = `<div class="sheet" role="dialog" aria-label="選択肢"><div class="sheet-in">
+      <div class="sheet-h"><div class="sheet-t">${title}</div>${res}<button class="iconbtn" data-act="sheet-close" aria-label="閉じる">${I.close}</button></div>
+      ${sub}<div class="choices ${cols2 ? 'cols2' : ''}">${btns}</div></div></div>`;
+  }
 
   let resultHTML = '';
   if (c.graded) {
@@ -466,7 +489,7 @@ function viewPlay() {
     const all = okN === c.results.length;
     resultHTML = `<div class="result ${all ? 'ok' : 'ng'}" id="result">
         <span class="big">${all ? '○' : '×'}</span>
-        <div><b>${all ? '正解' : '不正解'}${multi ? `（${okN}/${c.results.length}）` : ''}</b><span>${esc(c.note || '')}</span></div>
+        <div><b>${all ? '正解' : '不正解'}${multi ? `（${okN}/${c.results.length}）` : ''}</b><span>${esc(c.note || '')}${multi ? `${c.note ? '<br>' : ''}空欄をタップすると選択肢を確認できます` : ''}</span></div>
       </div>
       <section class="explain" aria-label="解説">
         <h2>解説 ${bmLineBtn(q.id)}</h2>
@@ -482,6 +505,8 @@ function viewPlay() {
     action = `<button class="btn primary" data-act="next">${isLast ? '結果を見る' : '次の問題'}${I.next}</button>`;
   } else if (multi) {
     action = `<button class="btn primary" data-act="grade" ${allPicked ? '' : 'disabled'}>${allPicked ? '採点する' : `あと${c.picks.filter((p) => p === null).length}か所 選んでください`}</button>`;
+  } else {
+    action = '<span class="grow"></span>';
   }
 
   app().innerHTML = `${topbar(s.title, counter, starBtn(q.id))}
@@ -492,24 +517,48 @@ function viewPlay() {
       <span>${esc(srcLabel(q))}</span>
       ${isWeak(q.id) ? '<span class="tag weak">苦手</span>' : ''}
     </div>
+    ${!c.graded && c.active == null && !c.picks.some((p) => p !== null) ? '<p class="tap-hint">空欄をタップすると選択肢が出ます</p>' : ''}
     <article class="qtext">${textHTML}${figuresHTML(q.figures)}</article>
-    ${blanksHTML}
+    ${restHTML}
     ${resultHTML}
-    <div class="actionbar"><div class="inner">${prevBtnHTML(s)}${action || '<span class="grow"></span>'}</div></div>`;
+    ${sheetHTML || `<div class="actionbar"><div class="inner">${prevBtnHTML(s)}${action}</div></div>`}`;
   typeset(app());
 
+  // パネルの高さぶん下に余白を取り、選んでいる空欄が隠れないようにする
+  const sheet = $('.sheet');
+  app().style.paddingBottom = sheet ? `${sheet.offsetHeight + 24}px` : '';
+  const rerender = () => { const y = window.scrollY; viewPlay(); window.scrollTo(0, y); keepActiveVisible(); };
+  app().querySelectorAll('[data-act="slot"]').forEach((el) => el.addEventListener('click', () => {
+    const bi = +el.dataset.b;
+    c.active = c.active === bi ? null : bi;
+    store.save(); rerender();
+  }));
+  $('[data-act="sheet-close"]')?.addEventListener('click', () => { c.active = null; store.save(); rerender(); });
   app().querySelectorAll('[data-act="pick"]').forEach((el) => el.addEventListener('click', () => {
     const bi = +el.dataset.b; const ci = +el.dataset.c;
     if (c.graded) return;
     c.picks[bi] = ci;
-    store.save();
-    if (!multi) { grade(q); return; }
-    const y = window.scrollY;
-    viewPlay();
-    window.scrollTo(0, y);
+    if (!multi) { c.active = null; store.save(); grade(q); return; }
+    // 次の未回答の空欄へ（なければ閉じる）
+    const n = q.blanks.length;
+    let nx = null;
+    for (let k = 1; k <= n; k++) { const j = (bi + k) % n; if (c.picks[j] == null) { nx = j; break; } }
+    c.active = nx;
+    store.save(); rerender();
   }));
-  $('[data-act="grade"]')?.addEventListener('click', () => grade(q));
+  $('[data-act="grade"]')?.addEventListener('click', () => { c.active = null; grade(q); });
   $('[data-act="next"]')?.addEventListener('click', nextQuestion);
+}
+function keepActiveVisible() {
+  const sheet = $('.sheet');
+  const c = store.d.session && store.d.session.cur;
+  if (!sheet || !c || c.active == null) return;
+  const slot = app().querySelector(`[data-act="slot"][data-b="${c.active}"]`);
+  if (!slot) return;
+  const r = slot.getBoundingClientRect();
+  const limit = window.innerHeight - sheet.offsetHeight - 16;
+  if (r.bottom > limit) window.scrollBy({ top: r.bottom - limit + 8, behavior: 'smooth' });
+  else if (r.top < 70) window.scrollBy({ top: r.top - 90, behavior: 'smooth' });
 }
 
 /* ---------- インプット（暗記）モード ----------
@@ -850,6 +899,7 @@ const routes = {
   settings: viewSettings,
 };
 function render() {
+  app().style.paddingBottom = '';
   const r = location.hash.replace(/^#\/?/, '').split('?')[0];
   (routes[r] || viewHome)();
   if (r !== 'resume') window.scrollTo(0, 0);
