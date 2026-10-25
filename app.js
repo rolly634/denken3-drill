@@ -5,9 +5,9 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.7.0';
 const KEY = 'denken3-drill:v1';
-const SUBJECTS = ['理論', '電力', '機械', '法規'];
+const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
 const CLEAR_STREAK = 2; // 苦手克服から外れるのに必要な連続正解数
 
@@ -832,7 +832,7 @@ function importText(text) {
   const list = Array.isArray(data) ? data : data && data.questions;
   if (!Array.isArray(list) || !list.length) { toast('問題が見つかりませんでした'); return; }
   const errors = [];
-  let added = 0; let updated = 0;
+  let added = 0; let updated = 0; let bmAdded = 0;
   list.forEach((q, i) => {
     const err = validateQuestion(q, i);
     if (err) { errors.push(err); return; }
@@ -850,11 +850,16 @@ function importText(text) {
     };
     if (!clean.figures.length) delete clean.figures;
     if (!clean.explanationFigures.length) delete clean.explanationFigures;
-    if (store.d.questions[q.id]) updated++; else added++;
+    if (store.d.questions[q.id]) updated++;
+    else {
+      added++;
+      // 問題ファイルで bookmark: true の問題は、初めて取り込んだときだけブックマークする
+      if (q.bookmark === true && !store.d.bookmarks.includes(q.id)) { store.d.bookmarks.push(q.id); bmAdded++; }
+    }
     store.d.questions[q.id] = clean;
   });
   if (!store.save()) return;
-  const msg = `取り込みました：新規 ${added}問 ／ 更新 ${updated}問${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
+  const msg = `取り込みました：新規 ${added}問 ／ 更新 ${updated}問${bmAdded ? ` ／ ブックマーク ${bmAdded}問` : ''}${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
   if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}${errors.length > 8 ? '\n…' : ''}`);
   else toast(msg);
   viewSettings();
