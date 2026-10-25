@@ -5,9 +5,9 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.0';
 const KEY = 'denken3-drill:v1';
-const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学'];
+const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学', '積分'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
 const CLEAR_STREAK = 2; // 苦手克服から外れるのに必要な連続正解数
 
@@ -868,9 +868,21 @@ function viewCards() {
   }));
 }
 
+const mbox = (n) => `<span class="mno">${esc(n)}</span>`;
 function cardBackHTML(c) {
   const vars = (c.vars || []).filter((v) => v && v[0]);
   const m = (s) => (/\$/.test(s) ? inlineRich(s) : esc(s));
+  if (c.method || c.hint || c.ref) {
+    const methods = (c.method || []).map((x) => `<div class="cmethod">${mbox(x.n)}${inlineRich(x.name)}</div>`).join('');
+    const hint = c.hint ? inlineRich(c.hint).replace(/\[\[(\d)\]\]/g, (_, n) => mbox(n)) : '';
+    return `<section class="cback" aria-label="カードの裏">
+      <div class="cname">${c.num != null ? `No.${esc(c.num)}` : m(c.name || '')}${c.advanced ? '<span class="dk">やや高度</span>' : ''}</div>
+      <div class="cformula ${(c.formula || '').length > 70 ? 'long' : ''}">${inlineRich(c.formula || '')}</div>
+      ${methods ? `<div class="cmethods"><b>手法</b>${methods}</div>` : ''}
+      ${hint ? `<div class="ccond"><b>ワンポイント</b>${hint}</div>` : ''}
+      ${c.ref ? `<p class="cref"><b>${esc(c.ref)}</b>${c.refItem ? `<span>${inlineRich(c.refItem)}</span>` : ''}</p>` : ''}
+    </section>`;
+  }
   return `<section class="cback" aria-label="カードの裏">
     <div class="cname">${m(c.name || '')}${c.denken ? '<span class="dk">電験で使う</span>' : ''}</div>
     <div class="cformula">${inlineRich(c.formula || '')}</div>
@@ -911,7 +923,7 @@ function viewCardPlay() {
       else cls += ' dim';
     }
     return `<button class="${cls}" data-act="cpick" data-c="${ci}" ${done ? 'disabled' : ''}>
-      <span class="k">${KANA[pos]}</span><span class="v">${choiceHTML(c.choices[ci])}</span><span class="mk">${mk}</span></button>`;
+      <span class="k">${KANA[pos]}</span><span class="v ${c.choices[ci].length > 70 ? 'long' : ''}">${choiceHTML(c.choices[ci])}</span><span class="mk">${mk}</span></button>`;
   }).join('');
   const ok = done && cur.pick === c.answer;
   const counter = shuffleMode ? `${(s.count || 0) + 1}枚目 ・ 正解 ${s.stats.ok}` : `${s.pos + 1} / ${s.queue.length}`;
@@ -995,6 +1007,13 @@ function importCards(list) {
       vars: Array.isArray(c.vars) ? c.vars.filter(Array.isArray).map((v) => v.slice(0, 3).map((x) => String(x ?? ''))) : [],
       conditions: c.conditions ? String(c.conditions) : '', note: c.note ? String(c.note) : '', denken: c.denken === true,
     };
+    // 積分練習カードなど：手法・ワンポイント・本の参照
+    if (Number.isFinite(c.num)) clean.num = c.num;
+    if (Array.isArray(c.method)) clean.method = c.method.filter((m) => m && m.n != null).map((m) => ({ n: String(m.n), name: String(m.name || '') }));
+    if (c.hint) clean.hint = String(c.hint);
+    if (c.ref) clean.ref = String(c.ref);
+    if (c.refItem) clean.refItem = String(c.refItem);
+    if (c.advanced === true) clean.advanced = true;
     if (store.d.cards[clean.id]) updated++; else added++;
     store.d.cards[clean.id] = clean;
   });

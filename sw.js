@@ -1,6 +1,6 @@
 /* オフラインでも動くように、アプリ本体をキャッシュする。
    アプリを更新したら VERSION を上げること。 */
-const VERSION = 'v1.10.0';
+const VERSION = 'v1.11.0';
 const CACHE = `denken3-drill-${VERSION}`;
 const KATEX_FONTS = [
   'AMS-Regular', 'Caligraphic-Bold', 'Caligraphic-Regular', 'Fraktur-Bold', 'Fraktur-Regular',
