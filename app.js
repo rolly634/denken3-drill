@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -402,6 +402,7 @@ function ensureCur(s) {
       orders: q.blanks.map((b) => shuffle(b.choices.map((_, i) => i))),
       picks: q.blanks.map(() => null),
       graded: false,
+      active: 0, // 最初から1つ目の空欄の選択肢を出す
     };
     store.save();
   }
@@ -527,6 +528,7 @@ function viewPlay() {
   // パネルの高さぶん下に余白を取り、選んでいる空欄が隠れないようにする
   const sheet = $('.sheet');
   app().style.paddingBottom = sheet ? `${sheet.offsetHeight + 24}px` : '';
+  if (sheet) setTimeout(() => keepActiveVisible(false), 0);
   const rerender = () => { const y = window.scrollY; viewPlay(); window.scrollTo(0, y); keepActiveVisible(); };
   app().querySelectorAll('[data-act="slot"]').forEach((el) => el.addEventListener('click', () => {
     const bi = +el.dataset.b;
@@ -549,7 +551,7 @@ function viewPlay() {
   $('[data-act="grade"]')?.addEventListener('click', () => { c.active = null; grade(q); });
   $('[data-act="next"]')?.addEventListener('click', nextQuestion);
 }
-function keepActiveVisible() {
+function keepActiveVisible(smooth = true) {
   const sheet = $('.sheet');
   const c = store.d.session && store.d.session.cur;
   if (!sheet || !c || c.active == null) return;
@@ -557,8 +559,9 @@ function keepActiveVisible() {
   if (!slot) return;
   const r = slot.getBoundingClientRect();
   const limit = window.innerHeight - sheet.offsetHeight - 16;
-  if (r.bottom > limit) window.scrollBy({ top: r.bottom - limit + 8, behavior: 'smooth' });
-  else if (r.top < 70) window.scrollBy({ top: r.top - 90, behavior: 'smooth' });
+  const behavior = smooth ? 'smooth' : 'auto';
+  if (r.bottom > limit) window.scrollBy({ top: r.bottom - limit + 8, behavior });
+  else if (r.top < 70) window.scrollBy({ top: r.top - 90, behavior });
 }
 
 /* ---------- インプット（暗記）モード ----------
