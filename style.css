@@ -357,7 +357,8 @@ details summary { cursor: pointer; font-size: 14px; color: var(--accent); margin
 .cback { margin-top: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px 16px; }
 .cname { font-weight: 700; color: var(--ink-2); font-size: 15px; }
 .cformula { margin: 10px 0 12px; padding: 12px; border-radius: 12px; background: var(--sheet-soft); color: var(--sheet-text); font-size: 20px; text-align: center; overflow-x: auto; }
-.cformula .katex { font-size: 1.15em; }
+.cformula .katex { font-size: 1.1em; }
+.cformula .katex-html { white-space: nowrap; }
 .cvars { width: 100%; border-collapse: collapse; font-size: 15px; }
 .cvars th, .cvars td { padding: 7px 6px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.5; }
 .cvars tr:first-child th, .cvars tr:first-child td { border-top: 0; }

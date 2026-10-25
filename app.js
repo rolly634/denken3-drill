@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.8.1';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
