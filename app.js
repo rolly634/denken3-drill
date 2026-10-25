@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -433,10 +433,17 @@ function viewPlay() {
     : `${s.pos + 1} / ${s.queue.length}`;
   if (store.d.ui.mode === 'input') { viewInput(s, q, counter); return; }
   if (c.active === undefined) c.active = null;
+  // 空欄が1つの問題は、公式カードと同じく問題の下に選択肢を並べてそのまま答える
+  const direct = q.blanks.length === 1;
+  if (direct) c.active = null;
 
   /* 空欄ボタン：タップで下から選択肢パネルを開く */
   const slotBtn = (bi, labelText, extraCls = '') => {
     const b = q.blanks[bi];
+    if (direct) {
+      if (!c.graded) return `<span class="slot">${esc(labelText)}</span>`;
+      return `<span class="slot ${c.results[bi] ? 'ok' : 'ng'}">${esc(labelText)}<b>${choiceHTML(b.choices[b.answer])}</b></span>`;
+    }
     let cls = `slot tap ${extraCls}`;
     let inner = labelText ? `<span class="sl">${esc(labelText)}</span>` : '';
     if (c.graded) {
@@ -460,7 +467,7 @@ function viewPlay() {
   // 文中に空欄がない解答欄は、問題の下に解答欄を置く
   const rest = q.blanks.map((_, bi) => bi).filter((bi) => !inText.has(bi));
   const single = rest.length === 1 && q.blanks.length === 1;
-  const restHTML = rest.length ? `<section class="answers" aria-label="解答欄">${rest.map((bi) => {
+  const restHTML = rest.length && !direct ? `<section class="answers" aria-label="解答欄">${rest.map((bi) => {
     const b = q.blanks[bi];
     const head = b.prompt ? inlineRich(b.prompt) : (single ? '答え' : `解答欄 ${esc(labels[bi])}`);
     const ph = !c.graded && c.picks[bi] == null ? '<span class="ph">タップして選ぶ</span>' : '';
@@ -492,6 +499,26 @@ function viewPlay() {
     sheetHTML = `<div class="sheet" role="dialog" aria-label="選択肢"><div class="sheet-in">
       <div class="sheet-h"><div class="sheet-t">${title}</div>${res}<button class="iconbtn" data-act="sheet-close" aria-label="閉じる">${I.close}</button></div>
       ${sub}<div class="choices ${cols2 ? 'cols2' : ''}">${btns}</div></div></div>`;
+  }
+
+  let directHTML = '';
+  if (direct) {
+    const b = q.blanks[0];
+    const order = c.orders[0];
+    const longest = Math.max(...b.choices.map((t) => t.length));
+    const cols2 = !b.choices.some((t) => t.includes('$') || isSvg(t)) && ((b.choices.length === 4 && longest <= 6) || (b.choices.length === 2 && longest <= 12));
+    const promptHTML = !inText.size && b.prompt ? `<p class="prompt">${inlineRich(b.prompt)}</p>` : '';
+    directHTML = `<section class="blank" aria-label="選択肢">${promptHTML}<div class="choices ${cols2 ? 'cols2' : ''}">${order.map((ci, pos) => {
+      let cls = 'choice';
+      let mk = '';
+      if (c.graded) {
+        if (ci === b.answer) { cls += ' is-answer'; mk = '○'; }
+        else if (ci === c.picks[0]) { cls += ' is-wrong'; mk = '×'; }
+        else cls += ' dim';
+      }
+      return `<button class="${cls}" data-act="pick" data-b="0" data-c="${ci}" ${c.graded ? 'disabled' : ''}>
+        <span class="k">${KANA[pos]}</span><span class="v">${choiceHTML(b.choices[ci])}</span><span class="mk">${mk}</span></button>`;
+    }).join('')}</div></section>`;
   }
 
   let resultHTML = '';
@@ -528,9 +555,10 @@ function viewPlay() {
       <span>${esc(srcLabel(q))}</span>
       ${isWeak(q.id) ? '<span class="tag weak">苦手</span>' : ''}
     </div>
-    ${!c.graded && c.active == null && !c.picks.some((p) => p !== null) ? '<p class="tap-hint">空欄をタップすると選択肢が出ます</p>' : ''}
+    ${!direct && !c.graded && c.active == null && !c.picks.some((p) => p !== null) ? '<p class="tap-hint">空欄をタップすると選択肢が出ます</p>' : ''}
     <article class="qtext">${textHTML}${figuresHTML(q.figures)}</article>
     ${restHTML}
+    ${directHTML}
     ${resultHTML}
     ${sheetHTML || `<div class="actionbar"><div class="inner">${prevBtnHTML(s)}${action}</div></div>`}`;
   typeset(app());
