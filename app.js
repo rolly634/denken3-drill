@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.12.0';
+const APP_VERSION = '1.12.1';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学', '積分'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -1073,8 +1073,28 @@ function viewSettings() {
         <button class="btn danger" data-act="reset-all">すべて消す</button>
       </div>
     </section>
+    <section class="section">
+      <h2>アプリの更新</h2>
+      <p>新しい版が出ても画面が変わらないときに押してください。アプリのファイルを取り直して読み込み直します。問題・学習記録は消えません。</p>
+      <button class="btn block" data-act="force-update">アプリを最新にする</button>
+    </section>
     <p class="fine">電験三種 短答ドリル v${APP_VERSION}</p>`;
 
+  $('[data-act="force-update"]').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    e.currentTarget.textContent = '更新しています…';
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter((k) => k.startsWith('denken3-drill-')).map((k) => caches.delete(k)));
+      }
+    } catch (err) { /* noop */ }
+    location.replace(`${location.pathname}?v=${Date.now()}#/`);
+  });
   if (typeof galBindSettings === 'function') galBindSettings();
   if (/\?gal$/.test(location.hash)) requestAnimationFrame(() => document.getElementById('gal')?.scrollIntoView());
   $('[data-act="import-file"]').addEventListener('change', async (e) => {
@@ -1249,7 +1269,18 @@ function boot() {
   render();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // アプリに戻ってきたときにも新しい版がないか確かめる
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
+    // 新しい版に切り替わったら一度だけ読み込み直して、新しいファイルで動かす
+    let reloaded = false;
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return;
+      reloaded = true;
+      location.reload();
+    });
   }
 }
 // gal.js など、あとに読み込むスクリプトがルートを足し終わってから起動する

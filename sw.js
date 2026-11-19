@@ -1,6 +1,6 @@
 /* オフラインでも動くように、アプリ本体をキャッシュする。
    アプリを更新したら VERSION を上げること。 */
-const VERSION = 'v1.12.0';
+const VERSION = 'v1.12.1';
 const CACHE = `denken3-drill-${VERSION}`;
 const KATEX_FONTS = [
   'AMS-Regular', 'Caligraphic-Bold', 'Caligraphic-Regular', 'Fraktur-Bold', 'Fraktur-Regular',
@@ -16,7 +16,8 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // ブラウザの HTTP キャッシュに残った古いファイルをつかまないよう、必ずサーバから取り直す
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
