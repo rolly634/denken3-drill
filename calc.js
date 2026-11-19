@@ -59,7 +59,8 @@ function calcTokens(src, si) {
     const num = /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(s.slice(i));
     if (num) {
       let v = Number(num[0]); i += num[0].length;
-      if (si && CALC_SI[s[i]] !== undefined && !/[A-Za-z]/.test(s[i + 1] || '')) { v *= CALC_SI[s[i]]; i++; }
+      // k・M・m・μ は 10 の何乗かとして付ける（10×0.000001 のような小数の誤差を出さないため）
+      if (si && CALC_SI[s[i]] !== undefined && !/[A-Za-z]/.test(s[i + 1] || '')) { v = Number(`${num[0]}e${Math.round(Math.log10(CALC_SI[s[i]]))}`); i++; }
       out.push({ t: 'n', v }); continue;
     }
     const id = /^[A-Za-z_][A-Za-z0-9_]*/.exec(s.slice(i));
@@ -140,6 +141,173 @@ function calcFmt(x, sig = 3) {
     return `${m}×10^${e}`;
   }
   return String(Number(x.toPrecision(sig)));
+}
+
+/* ---------------- 厳密な値（分数・√・π） ----------------
+   式を小数ではなく「有理数 × √n × π^k」の和のまま計算して、
+   途中で自然に出てくる分数・ルート・π の形で答えを見せる。
+   表せないもの（sin・cos など）は null。約分と分母の有理化はする。 */
+const SYM_MAX = 1e12;
+function gcd(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a || 1; }
+function symTerm(p, q, r = 1, k = 0) {
+  if (!Number.isInteger(p) || !Number.isInteger(q) || q === 0 || Math.abs(p) > SYM_MAX || Math.abs(q) > SYM_MAX) throw new Error('sym');
+  if (q < 0) { p = -p; q = -q; }
+  // √r の r から平方因数を外に出す
+  for (let f = 2; f * f <= r; f++) while (r % (f * f) === 0) { r /= f * f; p *= f; }
+  const g = gcd(p, q);
+  return { p: p / g, q: q / g, r, k };
+}
+function symNum(x) {
+  if (!Number.isFinite(x)) throw new Error('sym');
+  let str = String(x);
+  if (/e/i.test(str)) {
+    const [m, e] = str.toLowerCase().split('e');
+    const n = Number(e);
+    const t = symNum(Number(m));
+    const scale = 10 ** Math.abs(n);
+    return t.map((u) => (n >= 0 ? symTerm(u.p * scale, u.q, u.r, u.k) : symTerm(u.p, u.q * scale, u.r, u.k)));
+  }
+  const neg = str.startsWith('-'); if (neg) str = str.slice(1);
+  const [i, d = ''] = str.split('.');
+  if (d.length > 9) throw new Error('sym'); // 循環小数などは表せない
+  return [symTerm((neg ? -1 : 1) * Number(i + d), 10 ** d.length)];
+}
+function symClean(list) {
+  const map = new Map();
+  for (const t of list) {
+    const key = `${t.r}|${t.k}`;
+    const o = map.get(key);
+    map.set(key, o ? symTerm(o.p * t.q + t.p * o.q, o.q * t.q, t.r, t.k) : t);
+  }
+  const out = [...map.values()].filter((t) => t.p !== 0);
+  if (out.length > 4) throw new Error('sym');
+  return out.length ? out : [symTerm(0, 1)];
+}
+const symAdd = (a, b) => symClean(a.concat(b));
+const symNeg = (a) => a.map((t) => symTerm(-t.p, t.q, t.r, t.k));
+function symMul(a, b) {
+  const out = [];
+  for (const x of a) for (const y of b) {
+    const g = gcd(x.r, y.r);
+    out.push(symTerm(x.p * y.p * g, x.q * y.q, (x.r / g) * (y.r / g), x.k + y.k));
+  }
+  return symClean(out);
+}
+function symInv(a) {
+  if (a.length !== 1 || a[0].p === 0) throw new Error('sym');
+  const t = a[0]; // 1/(p/q·√r·π^k) = q√r / (p r) · π^-k
+  return [symTerm(t.q, t.p * t.r, t.r, -t.k)];
+}
+function symPow(a, e) {
+  if (!Number.isInteger(e) || Math.abs(e) > 8) throw new Error('sym');
+  let out = [symTerm(1, 1)];
+  for (let i = 0; i < Math.abs(e); i++) out = symMul(out, a);
+  return e < 0 ? symInv(out) : out;
+}
+function symSqrt(a) {
+  if (a.length !== 1) throw new Error('sym');
+  const t = a[0];
+  if (t.p < 0 || t.r !== 1 || t.k % 2) throw new Error('sym');
+  if (t.p === 0) return a;
+  return [symTerm(1, t.q, t.p * t.q, t.k / 2)]; // √(p/q) = √(pq)/q
+}
+const symValue = (a) => a.reduce((s, t) => s + (t.p / t.q) * Math.sqrt(t.r) * Math.PI ** t.k, 0);
+
+/* calcEval と同じ文法で、厳密な値を計算する */
+function calcSym(src, scope = {}, opt = {}) {
+  const tk = calcTokens(src, opt.si);
+  let p = 0;
+  const peek = () => tk[p];
+  const isOp = (v) => tk[p] && tk[p].t === 'op' && tk[p].v === v;
+  const eat = (v) => { if (!isOp(v)) throw new Error('sym'); p++; };
+  const startsPrimary = () => { const t = peek(); return t && (t.t === 'n' || t.t === 'id' || (t.t === 'op' && (t.v === '(' || t.v === '√'))); };
+  const asInt = (a) => { if (a.length !== 1 || a[0].q !== 1 || a[0].r !== 1 || a[0].k !== 0) throw new Error('sym'); return a[0].p; };
+  function primary() {
+    const t = peek();
+    if (!t) throw new Error('sym');
+    if (t.t === 'n') { p++; return symNum(t.v); }
+    if (t.t === 'op' && t.v === '(') { p++; const v = sum(); eat(')'); return v; }
+    if (t.t === 'op' && t.v === '√') { p++; return symSqrt(power()); }
+    if (t.t === 'id') {
+      p++;
+      if (isOp('(')) {
+        if (t.v !== 'sqrt' && t.v !== 'abs') throw new Error('sym');
+        p++; const v = sum(); eat(')');
+        if (t.v === 'sqrt') return symSqrt(v);
+        return symValue(v) < 0 ? symNeg(v) : v;
+      }
+      if (t.v === 'pi') return [symTerm(1, 1, 1, 1)];
+      if (Object.prototype.hasOwnProperty.call(scope, t.v)) {
+        const v = scope[t.v];
+        if (Array.isArray(v)) return v;
+        return symNum(Number(v));
+      }
+      throw new Error('sym');
+    }
+    throw new Error('sym');
+  }
+  function postfix() { let v = primary(); while (isOp('%')) { p++; v = symMul(v, [symTerm(1, 100)]); } return v; }
+  function power() { const b = postfix(); if (isOp('^')) { p++; return symPow(b, asInt(unary())); } return b; }
+  function unary() { if (isOp('-')) { p++; return symNeg(unary()); } if (isOp('+')) { p++; return unary(); } return power(); }
+  function term() {
+    let v = unary();
+    for (;;) {
+      if (isOp('*')) { p++; v = symMul(v, unary()); } else if (isOp('/')) { p++; v = symMul(v, symInv(unary())); } else if (startsPrimary()) v = symMul(v, unary()); else return v;
+    }
+  }
+  function sum() { let v = term(); for (;;) { if (isOp('+')) { p++; v = symAdd(v, term()); } else if (isOp('-')) { p++; v = symAdd(v, symNeg(term())); } else return v; } }
+  const v = sum();
+  if (p < tk.length) throw new Error('sym');
+  return v;
+}
+function calcSymSafe(src, scope, opt) { try { return calcSym(src, scope, opt); } catch (e) { return null; } }
+
+/* 小数と並べる意味があるか（整数や有限小数だけなら出さない） */
+function symWorthShowing(a) {
+  if (!a) return false;
+  if (a.length > 1) return true;
+  const t = a[0];
+  if (t.r !== 1 || t.k !== 0) return true;
+  if (t.q === 1) return false;
+  let q = t.q; while (q % 2 === 0) q /= 2; while (q % 5 === 0) q /= 5;
+  return q !== 1; // 1/3 など、小数で割り切れないものだけ
+}
+/* 表示：文字（例 10√3/3、500/π）と KaTeX（\tfrac{10\sqrt{3}}{3}） */
+const SUP = (n) => String(n).replace(/\d/g, (d) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[d]);
+/* 1 項を「分子・分母」の部品にする。有理化した形（10√3/3）と、分母にルートを残す形（10/√3）のうち短いほうを使う */
+function symParts(t) {
+  const a = Math.abs(t.p);
+  const cands = [{ n: a, nr: t.r, d: t.q, dr: 1 }];
+  if (t.r !== 1 && t.q !== 1 && (a * t.r) % t.q === 0) cands.push({ n: (a * t.r) / t.q, nr: 1, d: 1, dr: t.r });
+  const len = (c) => String(c.n).length + String(c.d === 1 ? '' : c.d).length + (c.nr !== 1 ? 1 + String(c.nr).length : 0) + (c.dr !== 1 ? 1 + String(c.dr).length : 0);
+  return cands.sort((x, y) => len(x) - len(y))[0];
+}
+function symFormat(a, f) {
+  return a.map((t, i) => {
+    const c = symParts(t);
+    const numPi = t.k > 0 ? f.pi(t.k) : ''; const denPi = t.k < 0 ? f.pi(-t.k) : '';
+    const numSq = c.nr !== 1 ? f.sqrt(c.nr) : ''; const denSq = c.dr !== 1 ? f.sqrt(c.dr) : '';
+    const num = `${c.n === 1 && (numSq || numPi) ? '' : c.n}${numSq}${numPi}`;
+    const den = `${c.d !== 1 ? c.d : ''}${denSq}${denPi}`;
+    const body = den ? f.frac(num, den) : num;
+    const neg = t.p < 0;
+    return i === 0 ? `${neg ? f.minus : ''}${body}` : `${neg ? f.sub : f.add}${body}`;
+  }).join('');
+}
+const symText = (a) => symFormat(a, { pi: (n) => (n === 1 ? 'π' : `π${SUP(n)}`), sqrt: (r) => `√${r}`, frac: (n, d) => `${n}/${d}`, minus: '−', sub: ' − ', add: ' + ' });
+const symTex = (a) => symFormat(a, { pi: (n) => (n === 1 ? '\\pi' : `\\pi^{${n}}`), sqrt: (r) => `\\sqrt{${r}}`, frac: (n, d) => `\\tfrac{${n}}{${d}}`, minus: '-', sub: '-', add: '+' });
+/* テンプレートの各段の厳密な値（変数 → 段の順に計算。表せない段は null） */
+function calcSymScope(tpl, vars) {
+  const sc = {};
+  for (const [k, v] of Object.entries(vars)) { try { sc[k] = symNum(Number(v)); } catch (e) { /* 表せない変数 */ } }
+  for (const [k, ex] of Object.entries(tpl.let || {})) { const v = calcSymSafe(ex, sc); if (v) sc[k] = v; }
+  const out = {};
+  for (const st of tpl.steps) {
+    if (st.choices || !st.name) continue;
+    const v = calcSymSafe(st.expr, sc);
+    if (v) { sc[st.name] = v; out[st.name] = v; }
+  }
+  return out;
 }
 
 /* ---------------- テンプレート ---------------- */
@@ -276,7 +444,9 @@ function calcSubmit(raw) {
     const hints = calcHints(st);
     if (L.tries > Math.min(CALC_HINT_MAX, hints.length)) {
       L.steps[L.si] = { got, ok: false, shown: true, hints: L.tries };
-      L.msg = { kind: 'ng', text: `答えは ${st.choices ? st.choices[want] : `${calcFmt(want)}${st.unit ? ` ${st.unit}` : ''}`} だよ。次のステップはこの値で進めよ👍` };
+      const sym = st.choices || !st.name ? null : calcSymScope(tpl, L.vars)[st.name];
+      const fr = symWorthShowing(sym) ? symText(sym) : null;
+      L.msg = { kind: 'ng', text: `答えは ${st.choices ? st.choices[want] : `${calcFmt(want)}${fr ? `（＝ ${fr}）` : ''}${st.unit ? ` ${st.unit}` : ''}`} だよ。次のステップはこの値で進めよ👍` };
       calcAdvance();
     } else {
       L.msg = { kind: 'ng', text: `${CALC_OOPS[Math.min(L.tries - 1, CALC_OOPS.length - 1)]}${st.choices ? '' : `（キミの答え：${calcFmt(got)}）`}` };
@@ -356,12 +526,15 @@ function calcProblemHTML(tpl, scope) {
     ${tpl.figuresFrom && !calcFigures(tpl).length ? '<p class="g-note">図は、同じ回の問題ファイルを取り込むと表示されます。</p>' : ''}</article>`;
 }
 function calcStepsHTML(tpl, L, scope) {
+  const symS = calcSymScope(tpl, L.vars);
   return `<ol class="c-steps">${tpl.steps.map((st, i) => {
     const label = calcFill(st.label, scope);
     if (i < L.si || L.done) {
       const r = L.steps[i] || {};
       const want = calcStepValue(st, scope);
-      const val = st.choices ? st.choices[want] : `${calcFmt(want)}${st.unit ? ` ${esc(st.unit)}` : ''}`;
+      const sym = st.choices || !st.name ? null : symS[st.name];
+      const fr = symWorthShowing(sym) ? symTex(sym) : '';
+      const val = st.choices ? st.choices[want] : `${calcFmt(want)}${st.unit ? ` ${esc(st.unit)}` : ''}${fr ? `<small class="c-frac">（$${fr}$）</small>` : ''}`;
       return `<li class="c-step done ${r.ok ? (r.hints ? 'hinted' : 'ok') : 'ng'}"><span class="mk">${r.ok ? (r.hints ? '△' : '○') : '×'}</span><span class="lb">${inlineRich(label)}</span><b>${st.choices ? inlineRich(val) : val}</b></li>`;
     }
     if (i === L.si) {
@@ -375,7 +548,12 @@ function calcStepsHTML(tpl, L, scope) {
 function calcDisplayHTML(L, st) {
   let preview = '';
   if (L.input.trim()) {
-    try { preview = `= ${calcFmt(calcEval(L.input, { Ans: calcAns() }, { si: true }), 6)}`; } catch (e) { preview = '…'; }
+    try {
+      const v = calcEval(L.input, { Ans: calcAns() }, { si: true });
+      const sym = calcSymSafe(L.input, {}, { si: true });
+      const fr = symWorthShowing(sym) ? symText(sym) : null;
+      preview = `= ${calcFmt(v, 6)}${fr ? `（${fr}）` : ''}`;
+    } catch (e) { preview = '…'; }
   }
   return `<div class="c-disp" aria-live="polite"><div class="c-expr">${esc(L.input) || `<span class="ph">${st ? '式や数値を入力（例：40÷0.8）' : ''}</span>`}<span class="caret"></span></div><div class="c-prev">${esc(preview)}${st && st.unit ? ` <small>${esc(st.unit)}</small>` : ''}</div></div>`;
 }
@@ -468,11 +646,14 @@ function viewCalc() {
 function calcAskText() {
   const C = calcData(); const L = C.live; const tpl = C.templates[L.id];
   const scope = calcScope();
+  const symAll = calcSymScope(tpl, L.vars);
   const lines = tpl.steps.map((st, i) => {
     const r = L.steps[i] || {};
     const want = calcStepValue(st, scope);
     const mine = st.choices ? st.choices[r.got] ?? '' : r.got !== undefined ? calcFmt(r.got, 4) : '';
-    return `${i + 1}. ${calcFill(st.label, scope)}：正解 ${st.choices ? st.choices[want] : `${calcFmt(want)} ${st.unit || ''}`}／自分 ${mine}${r.ok ? (r.hints ? '（ヒントで正解）' : '（一発正解）') : '（答えを見た）'}`;
+    const sym = st.choices || !st.name ? null : symAll[st.name];
+    const fr = symWorthShowing(sym) ? symText(sym) : null;
+    return `${i + 1}. ${calcFill(st.label, scope)}：正解 ${st.choices ? st.choices[want] : `${calcFmt(want)}${fr ? `（＝${fr}）` : ''} ${st.unit || ''}`}／自分 ${mine}${r.ok ? (r.hints ? '（ヒントで正解）' : '（一発正解）') : '（答えを見た）'}`;
   }).join('\n');
   return `電験三種の計算練習をしていて、この問題でつまずいたところを、ギャル先生の口調で「なんでそうなるか」から教えてほしいです。
 
