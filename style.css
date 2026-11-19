@@ -479,6 +479,7 @@ details summary { cursor: pointer; font-size: 14px; color: var(--accent); margin
 .c-step .lb { text-align: left; min-width: 0; }
 .c-step .lb small { margin-left: 6px; font-size: 12px; color: var(--ink-3); }
 .c-step > b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.c-step .c-frac { margin-left: 4px; font-size: 15px; font-weight: 500; color: var(--ink-2); }
 .c-step.todo { opacity: .55; }
 .c-step.cur { border: 2px solid var(--accent); background: var(--accent-soft); }
 .c-step.cur .mk { background: var(--accent); color: #fff; }
