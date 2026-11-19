@@ -248,6 +248,10 @@ button.slot { font: inherit; font-weight: 700; cursor: pointer; vertical-align: 
 .fig-svg text.v, .fig-svg tspan.v { font-family: KaTeX_Math, "Times New Roman", serif; font-style: italic; }
 .fig-svg text.ja, .fig-svg tspan.ja { font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 13px; font-style: normal; }
 .fig-svg .bg { fill: var(--surface); }
+/* PDF から切り出した図（線の濃さを透明度で持つ PNG）。ダークモードでは白黒を反転する */
+.fig-svg image.ink { image-rendering: auto; }
+:root[data-theme="dark"] .fig-svg image.ink { filter: invert(1); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .fig-svg image.ink { filter: invert(1); } }
 .fig-svg .soft { fill: var(--surface-2); }
 .fig-svg .accent { stroke: var(--accent); }
 .fig-svg .accent-fill { fill: var(--accent); stroke: none; }
