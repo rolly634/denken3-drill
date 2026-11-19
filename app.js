@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.12.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学', '積分'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -55,6 +55,8 @@ function normalize(raw) {
     cprog: d.cprog && typeof d.cprog === 'object' ? d.cprog : {},
     csession: d.csession || null,
     clast: d.clast || null,
+    // ギャル先生（gal.js）。中身の整形は gal.js の galData() で行う
+    gal: d.gal && typeof d.gal === 'object' ? d.gal : null,
   };
 }
 
@@ -322,6 +324,8 @@ function viewHome() {
     <nav class="menu">
       <a class="menu-item ${resumeOn ? 'primary' : ''}" href="#/resume" aria-disabled="${!resumeOn}">
         <span class="ic">${I.resume}</span><span class="tx"><b>続きから</b><span>${resumeSub}</span></span></a>
+      <a class="menu-item gal" href="#/gal" aria-disabled="${!qs.length}">
+        <span class="ic">${I.chat}</span><span class="tx"><b>ギャル先生</b><span>${typeof galHomeSub === 'function' ? galHomeSub() : 'AI と一問一答で理解を確かめる'}</span></span></a>
       <a class="menu-item" href="#/list" aria-disabled="${!qs.length}">
         <span class="ic">${I.list}</span><span class="tx"><b>問題一覧</b><span>科目・単元ごとに選んで解く</span></span>
         <span class="badge">${qs.length}</span></a>
@@ -1050,9 +1054,11 @@ function viewSettings() {
       <p>収録 ${Object.keys(store.d.cards).length}枚（学習済み ${cardCounts().learned}枚）</p>
     </section>
 
+    ${typeof galSettingsHTML === 'function' ? galSettingsHTML() : ''}
+
     <section class="section">
       <h2>バックアップ</h2>
-      <p>問題・学習記録・ブックマークは、この端末のブラウザの中だけに保存されています。ブラウザのデータを消すとすべて失われるので、ときどき書き出しておいてください。</p>
+      <p>問題・学習記録・ブックマークは、この端末のブラウザの中だけに保存されています。ブラウザのデータを消すとすべて失われるので、ときどき書き出しておいてください。（ギャル先生の API キーは書き出しに含まれません）</p>
       <div class="row">
         <button class="btn" data-act="export">${I.download}書き出す</button>
         <label class="btn">${I.upload}読み込む<input type="file" accept=".json,application/json" class="visually-hidden" data-act="restore"></label>
@@ -1061,7 +1067,7 @@ function viewSettings() {
 
     <section class="section">
       <h2>リセット</h2>
-      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの正誤の記録を消します。</p>
+      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの正誤・ギャル先生の記録を消します。</p>
       <div class="row">
         <button class="btn danger" data-act="reset-progress">学習記録だけ消す</button>
         <button class="btn danger" data-act="reset-all">すべて消す</button>
@@ -1069,6 +1075,8 @@ function viewSettings() {
     </section>
     <p class="fine">電験三種 短答ドリル v${APP_VERSION}</p>`;
 
+  if (typeof galBindSettings === 'function') galBindSettings();
+  if (/\?gal$/.test(location.hash)) requestAnimationFrame(() => document.getElementById('gal')?.scrollIntoView());
   $('[data-act="import-file"]').addEventListener('change', async (e) => {
     const f = e.target.files[0]; e.target.value = '';
     if (f) importText(await f.text());
@@ -1083,6 +1091,7 @@ function viewSettings() {
     if (!confirm('学習記録（正誤・苦手克服・続きから）を消します。ブックマークと問題は残ります。よろしいですか？')) return;
     store.d.progress = {}; store.d.session = null; store.d.lastSession = null;
     store.d.cprog = {}; store.d.csession = null; store.d.clast = null;
+    if (store.d.gal) store.d.gal = { settings: store.d.gal.settings };
     store.save(); toast('学習記録を消しました'); viewSettings();
   });
   $('[data-act="reset-all"]').addEventListener('click', () => {
@@ -1198,7 +1207,7 @@ function render() {
   app().style.paddingBottom = '';
   const r = location.hash.replace(/^#\/?/, '').split('?')[0];
   (routes[r] || viewHome)();
-  if (r !== 'resume') window.scrollTo(0, 0);
+  if (r !== 'resume' && r !== 'galplay') window.scrollTo(0, 0);
 }
 
 /* 全画面共通のイベント（ブックマーク・科目チップ・インストール） */
@@ -1243,4 +1252,5 @@ function boot() {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+// gal.js など、あとに読み込むスクリプトがルートを足し終わってから起動する
+if (document.readyState === 'complete') boot(); else document.addEventListener('DOMContentLoaded', boot);
