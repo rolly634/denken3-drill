@@ -5,7 +5,7 @@
    データはすべて端末のブラウザ (localStorage) に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.12.1';
+const APP_VERSION = '1.13.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学', '積分'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -57,6 +57,8 @@ function normalize(raw) {
     clast: d.clast || null,
     // ギャル先生（gal.js）。中身の整形は gal.js の galData() で行う
     gal: d.gal && typeof d.gal === 'object' ? d.gal : null,
+    // 計算練習（calc.js）。中身の整形は calc.js の calcData() で行う
+    calc: d.calc && typeof d.calc === 'object' ? d.calc : null,
   };
 }
 
@@ -324,6 +326,8 @@ function viewHome() {
     <nav class="menu">
       <a class="menu-item ${resumeOn ? 'primary' : ''}" href="#/resume" aria-disabled="${!resumeOn}">
         <span class="ic">${I.resume}</span><span class="tx"><b>続きから</b><span>${resumeSub}</span></span></a>
+      <a class="menu-item calc" href="#/calc">
+        <span class="ic">${I.calc}</span><span class="tx"><b>計算練習</b><span>${typeof calcHomeSub === 'function' ? calcHomeSub() : '数字が毎回変わる計算問題'}</span></span></a>
       <a class="menu-item gal" href="#/gal" aria-disabled="${!qs.length}">
         <span class="ic">${I.chat}</span><span class="tx"><b>ギャル先生</b><span>${typeof galHomeSub === 'function' ? galHomeSub() : 'AI と一問一答で理解を確かめる'}</span></span></a>
       <a class="menu-item" href="#/list" aria-disabled="${!qs.length}">
@@ -1038,7 +1042,7 @@ function viewSettings() {
       <label class="btn primary block">${I.upload}ファイルを選ぶ<input type="file" accept=".json,application/json,text/plain" class="visually-hidden" data-act="import-file"></label>
       <details>
         <summary>テキストを貼り付けて取り込む</summary>
-        <textarea data-act="import-text" placeholder='{"format":"denken3-drill/v1","questions":[...]} または公式カード（cards-v1）'></textarea>
+        <textarea data-act="import-text" placeholder='{"format":"denken3-drill/v1","questions":[...]} または公式カード（cards-v1）・計算問題（calc-v1）'></textarea>
         <div style="height:8px"></div>
         <button class="btn block" data-act="import-paste">貼り付けた内容を取り込む</button>
       </details>
@@ -1067,7 +1071,7 @@ function viewSettings() {
 
     <section class="section">
       <h2>リセット</h2>
-      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの正誤・ギャル先生の記録を消します。</p>
+      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの正誤・ギャル先生と計算練習の記録を消します。</p>
       <div class="row">
         <button class="btn danger" data-act="reset-progress">学習記録だけ消す</button>
         <button class="btn danger" data-act="reset-all">すべて消す</button>
@@ -1112,6 +1116,7 @@ function viewSettings() {
     store.d.progress = {}; store.d.session = null; store.d.lastSession = null;
     store.d.cprog = {}; store.d.csession = null; store.d.clast = null;
     if (store.d.gal) store.d.gal = { settings: store.d.gal.settings };
+    if (store.d.calc) store.d.calc = { templates: store.d.calc.templates };
     store.save(); toast('学習記録を消しました'); viewSettings();
   });
   $('[data-act="reset-all"]').addEventListener('click', () => {
@@ -1141,6 +1146,10 @@ function importText(text) {
   if (data && data.format === 'denken3-drill/cards-v1') {
     if (!Array.isArray(data.cards) || !data.cards.length) { toast('カードが見つかりませんでした'); return; }
     importCards(data.cards); return;
+  }
+  if (data && data.format === 'denken3-drill/calc-v1' && typeof calcImport === 'function') {
+    if (!Array.isArray(data.templates) || !data.templates.length) { toast('計算問題が見つかりませんでした'); return; }
+    calcImport(data.templates); return;
   }
   if (data && data.format === 'denken3-drill/backup-v1') { toast('これはバックアップファイルです。「バックアップ → 読み込む」から読み込んでください'); return; }
   const list = Array.isArray(data) ? data : data && data.questions;
@@ -1227,7 +1236,7 @@ function render() {
   app().style.paddingBottom = '';
   const r = location.hash.replace(/^#\/?/, '').split('?')[0];
   (routes[r] || viewHome)();
-  if (r !== 'resume' && r !== 'galplay') window.scrollTo(0, 0);
+  if (r !== 'resume' && r !== 'galplay' && r !== 'calcplay') window.scrollTo(0, 0);
 }
 
 /* 全画面共通のイベント（ブックマーク・科目チップ・インストール） */
