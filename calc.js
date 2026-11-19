@@ -130,7 +130,9 @@ function calcEval(src, scope = {}, opt = {}) {
 /* 表示用の数値（3 桁の有効数字。整数ならそのまま） */
 function calcFmt(x, sig = 3) {
   if (typeof x !== 'number' || !Number.isFinite(x)) return '?';
-  if (Math.abs(x - Math.round(x)) < 1e-9 * Math.max(1, Math.abs(x)) && Math.abs(x) < 1e7) return String(Math.round(x));
+  if (x === 0) return '0';
+  // 整数として表示するのは 1 以上のときだけ（とても小さい値を 0 と表示しないため）
+  if (Math.abs(x) >= 1 && Math.abs(x - Math.round(x)) < 1e-9 * Math.abs(x) && Math.abs(x) < 1e7) return String(Math.round(x));
   const a = Math.abs(x);
   if (a !== 0 && (a >= 1e5 || a < 1e-3)) {
     const e = Math.floor(Math.log10(a));
@@ -261,7 +263,8 @@ function calcSubmit(raw) {
   else {
     try { got = calcEval(raw, { Ans: calcAns() }, { si: true }); } catch (e) { L.msg = { kind: 'err', text: e.message }; calcRender(); return; }
     const tol = Number.isFinite(st.tol) ? st.tol : Number.isFinite(tpl.tol) ? tpl.tol : CALC_TOL;
-    ok = Math.abs(got - want) <= Math.max(Math.abs(want) * tol, 1e-9);
+    // 相対誤差で判定（とても小さい値でも 0 を正解にしないよう、絶対誤差の下限は正解が 0 のときだけ）
+    ok = want === 0 ? Math.abs(got) <= 1e-12 : Math.abs(got - want) <= Math.abs(want) * tol;
   }
   if (ok) {
     L.steps[L.si] = { got, ok: true, hints: L.tries };
@@ -336,9 +339,21 @@ function calcKeypadHTML(L) {
 }
 
 /* ---------------- 画面 ---------------- */
+/* 図：テンプレート自身の figures と、figuresFrom（取り込み済みの問題 id）の図をあわせて使う。
+   過去問の途中式は、問題データの図を参照して容量を節約する */
+function calcFigures(tpl) {
+  const own = (tpl.figures || []).map((f) => (typeof f === 'string' ? { svg: f } : f));
+  const from = [].concat(tpl.figuresFrom || []).flatMap((id) => {
+    const q = store.d.questions[id];
+    return q && q.figures ? q.figures : [];
+  });
+  return own.concat(from);
+}
+const calcHasVars = (tpl) => Object.keys(tpl.vars || {}).length > 0;
 function calcProblemHTML(tpl, scope) {
   return `<article class="card c-prob"><div class="g-qmeta"><span class="tag">${esc(tpl.unit || tpl.subject)}</span><span>${esc(tpl.title)}</span></div>
-    <div class="qtext">${rich(calcFill(tpl.text, scope))}${figuresHTML((tpl.figures || []).map((f) => ({ ...(typeof f === 'string' ? { svg: f } : f), svg: calcFill(typeof f === 'string' ? f : f.svg, scope) })))}</div></article>`;
+    <div class="qtext">${rich(calcFill(tpl.text, scope))}${figuresHTML(calcFigures(tpl).map((f) => ({ ...f, svg: calcFill(f.svg, scope) })))}</div>
+    ${tpl.figuresFrom && !calcFigures(tpl).length ? '<p class="g-note">図は、同じ回の問題ファイルを取り込むと表示されます。</p>' : ''}</article>`;
 }
 function calcStepsHTML(tpl, L, scope) {
   return `<ol class="c-steps">${tpl.steps.map((st, i) => {
@@ -379,7 +394,7 @@ function calcDoneHTML(tpl, L, scope) {
     <p class="c-score"><b>${clean}</b> / ${tpl.steps.length} ステップを一発正解${clean === tpl.steps.length ? ' 🎉 パーフェクト！' : ''}</p>
     ${tpl.explanation ? `<h3>解説</h3><div class="expl">${rich(calcFill(tpl.explanation, scope))}</div>` : ''}
     <div class="btns">
-      <button class="btn primary" data-c="again">${I.dice}同じ問題を別の数字で</button>
+      <button class="btn primary" data-c="again">${calcHasVars(tpl) ? `${I.dice}同じ問題を別の数字で` : 'もう一回解く'}</button>
       <button class="btn" data-c="next">次の問題 ${I.next}</button>
       <button class="btn" data-c="ask">Claude に聞く文をコピー</button>
       <a class="btn" href="#/calc">一覧へ</a>
@@ -394,7 +409,7 @@ function calcRender() {
   const scope = calcScope();
   const st = L.done ? null : tpl.steps[L.si];
   const y = window.scrollY;
-  app().innerHTML = `${topbar('計算練習', `${esc(tpl.unit || tpl.subject)} ・ ステップ ${Math.min(L.si + 1, tpl.steps.length)}/${tpl.steps.length}`, `<button class="iconbtn" data-c="again" aria-label="別の数字で解き直す">${I.dice}</button>`, '#/calc')}
+  app().innerHTML = `${topbar('計算練習', `${esc(tpl.unit || tpl.subject)} ・ ステップ ${Math.min(L.si + 1, tpl.steps.length)}/${tpl.steps.length}`, (calcHasVars(tpl) ? `<button class="iconbtn" data-c="again" aria-label="別の数字で解き直す">${I.dice}</button>` : ''), '#/calc')}
     ${calcProblemHTML(tpl, scope)}
     ${calcStepsHTML(tpl, L, scope)}
     ${calcMsgHTML(L)}

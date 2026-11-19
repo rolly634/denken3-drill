@@ -77,6 +77,7 @@ Android の Chrome で開き、メニューの「ホーム画面に追加」で�
 | `steps[].expr` | その段の正解の式。`name` を付けると、あとの段や解説で使える |
 | `steps[].choices` + `answer` | 選択式の段（`answer` は 0 始まり） |
 | `steps[].unit` / `tol` | 単位の表示 ／ 許す相対誤差（既定 0.01） |
+| `figuresFrom` | 任意。取り込み済みの問題の id（または配列）。その問題の図を表示する（同じ図を二重に保存しないため） |
 
 式で使えるもの：`+ - * / ^ ( )`、`sqrt abs sin cos tan asin acos atan`（角度は度）、`log`（常用）、`ln`、`exp`、`round`、`min`、`max`、`pi`、比較 `< <= > >= == !=` と `&& ||`（`where` 用）。取り込むときに、すべての段が計算できるか確認する。
 
