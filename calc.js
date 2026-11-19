@@ -557,6 +557,11 @@ function calcDisplayHTML(L, st) {
   }
   return `<div class="c-disp" aria-live="polite"><div class="c-expr">${esc(L.input) || `<span class="ph">${st ? '式や数値を入力（例：40÷0.8）' : ''}</span>`}<span class="caret"></span></div><div class="c-prev">${esc(preview)}${st && st.unit ? ` <small>${esc(st.unit)}</small>` : ''}</div></div>`;
 }
+/* 電卓の上に「いま求める値」を 1 行で出す */
+function calcNowHTML(tpl, L, st, scope) {
+  const n = calcHints(st).slice(0, L.tries).length;
+  return `<div class="c-now"><span class="mk">${L.si + 1}</span><span class="lb">${inlineRich(calcFill(st.label, scope))}${st.unit ? `<small>〔${esc(st.unit)}〕</small>` : ''}</span>${n ? `<button type="button" class="c-now-h" data-c="showhint">ヒント${n}</button>` : ''}</div>`;
+}
 function calcTapeHTML() {
   const t = calcData().tape.slice(0, 6);
   if (!t.length) return '';
@@ -593,6 +598,7 @@ function calcRender() {
     ${calcMsgHTML(L)}
     ${L.done ? calcDoneHTML(tpl, L, scope) : ''}
     ${st ? `<div class="c-dock"><div class="c-dock-in">
+      ${calcNowHTML(tpl, L, st, scope)}
       ${st.choices
         ? `<div class="choices">${st.choices.map((ch, k) => `<button class="choice" data-c="choice" data-k="${k}"><span class="k">${KANA[k]}</span><span class="v">${inlineRich(ch)}</span></button>`).join('')}</div>`
         : `${calcTapeHTML()}${calcDisplayHTML(L, st)}${calcKeypadHTML(L)}`}
@@ -688,6 +694,10 @@ document.addEventListener('click', (e) => {
     if (t) { L.input += calcFmt(t.v, 6).replace('×10^', '×10^'); calcRefreshDisplay(); store.save(); }
   } else if (a === 'submit') { if (L.input.trim()) { L.scroll = true; calcSubmit(L.input); } }
   else if (a === 'choice') { L.scroll = true; calcSubmit(Number(el.dataset.k)); }
+  else if (a === 'showhint') {
+    const cur = document.querySelector('.c-step.cur .c-hint:last-child') || document.querySelector('.c-step.cur');
+    if (cur) window.scrollTo({ top: window.scrollY + cur.getBoundingClientRect().top - 80, behavior: 'smooth' });
+  }
   else if (a === 'again') calcStart(L.id, true);
   else if (a === 'next') calcStart(calcNextId(L.id));
   else if (a === 'ask') {

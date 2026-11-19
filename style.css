@@ -502,6 +502,12 @@ details summary { cursor: pointer; font-size: 14px; color: var(--accent); margin
 .c-done .btns { display: grid; gap: 8px; margin-top: 14px; }
 .c-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--bg); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,.06); }
 .c-dock-in { max-width: 648px; margin: 0 auto; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: grid; gap: 6px; }
+.c-now { display: flex; align-items: center; gap: 8px; padding: 2px 2px 0; font-size: 15px; line-height: 1.4; }
+.c-now .mk { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; background: var(--accent); color: #fff; }
+.c-now .lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.c-now .lb small { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.c-now-h { flex: none; padding: 3px 10px; border-radius: 99px; border: 0; background: var(--gal-soft, #fde7ef); color: var(--gal, #d6336c); font-size: 12px; font-weight: 700; }
+.c-dock .choices { max-height: 36vh; overflow-y: auto; }
 .c-disp { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); min-height: 52px; }
 .c-expr { font-size: 22px; font-family: KaTeX_Main, "Times New Roman", serif; word-break: break-all; line-height: 1.3; }
 .c-expr .ph { font-size: 14px; color: var(--ink-3); font-family: inherit; }
