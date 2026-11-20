@@ -6,7 +6,7 @@
    IndexedDB が使えないときだけ、前と同じ localStorage に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.14.0';
+const APP_VERSION = '1.15.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学', '積分'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -196,8 +196,6 @@ function normalize(raw) {
     cprog: d.cprog && typeof d.cprog === 'object' ? d.cprog : {},
     csession: d.csession || null,
     clast: d.clast || null,
-    // ギャル先生（gal.js）。中身の整形は gal.js の galData() で行う
-    gal: d.gal && typeof d.gal === 'object' ? d.gal : null,
     // 計算練習（calc.js）。中身の整形は calc.js の calcData() で行う
     calc: d.calc && typeof d.calc === 'object' ? d.calc : null,
   };
@@ -469,8 +467,6 @@ function viewHome() {
         <span class="ic">${I.resume}</span><span class="tx"><b>続きから</b><span>${resumeSub}</span></span></a>
       <a class="menu-item calc" href="#/calc">
         <span class="ic">${I.calc}</span><span class="tx"><b>計算練習</b><span>${typeof calcHomeSub === 'function' ? calcHomeSub() : '数字が毎回変わる計算問題'}</span></span></a>
-      <a class="menu-item gal" href="#/gal" aria-disabled="${!qs.length}">
-        <span class="ic">${I.chat}</span><span class="tx"><b>ギャル先生</b><span>${typeof galHomeSub === 'function' ? galHomeSub() : 'AI と一問一答で理解を確かめる'}</span></span></a>
       <a class="menu-item" href="#/list" aria-disabled="${!qs.length}">
         <span class="ic">${I.list}</span><span class="tx"><b>問題一覧</b><span>科目・単元ごとに選んで解く</span></span>
         <span class="badge">${qs.length}</span></a>
@@ -1143,6 +1139,13 @@ function validateCard(c, i) {
   return null;
 }
 async function importCards(list) {
+  const r = applyCards(list);
+  store.touch('cards');
+  if (!(await store.flush())) return;
+  importReport([['公式カード', '枚', r]]);
+  viewSettings();
+}
+function applyCards(list) {
   const errors = [];
   let added = 0; let updated = 0;
   list.forEach((c, i) => {
@@ -1166,11 +1169,15 @@ async function importCards(list) {
     if (store.d.cards[clean.id]) updated++; else added++;
     store.d.cards[clean.id] = clean;
   });
-  store.touch('cards');
-  if (!(await store.flush())) return;
-  const msg = `公式カードを取り込みました：新規 ${added}枚 ／ 更新 ${updated}枚${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
-  if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}`); else toast(msg);
-  viewSettings();
+  return { added, updated, errors };
+}
+// 取り込み結果をまとめて知らせる。parts = [[名前, 単位, {added, updated, errors, bm}], …]
+function importReport(parts) {
+  const lines = parts.filter((p) => p[2]).map(([name, u, r]) => `${name}：新規 ${r.added}${u} ／ 更新 ${r.updated}${u}${r.bm ? ` ／ ブックマーク ${r.bm}${u}` : ''}${r.errors.length ? ` ／ エラー ${r.errors.length}件` : ''}`);
+  const errors = parts.flatMap((p) => (p[2] ? p[2].errors : []));
+  const msg = `取り込みました\n${lines.join('\n')}`;
+  if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}${errors.length > 8 ? '\n…' : ''}`);
+  else toast(lines.join(' ／ '));
 }
 
 /* ---------- settings ---------- */
@@ -1200,12 +1207,13 @@ function viewSettings() {
       <p>収録 ${Object.keys(store.d.cards).length}枚（学習済み ${cardCounts().learned}枚）</p>
     </section>
 
-    ${typeof galSettingsHTML === 'function' ? galSettingsHTML() : ''}
+
+    ${typeof driveSettingsHTML === 'function' ? driveSettingsHTML() : ''}
 
     <section class="section">
       <h2>保存とバックアップ</h2>
       <p>問題・学習記録・ブックマークは、この端末のブラウザの中に保存されています。<span data-slot="usage">使用量を調べています…</span></p>
-      <p>ブラウザのデータを消すとすべて失われるので、ときどきバックアップを Google Drive などに保存しておいてください。${lastBackupText()}（ギャル先生の API キーは含まれません）</p>
+      <p>ブラウザのデータを消すとすべて失われるので、ときどきバックアップを Google Drive などに保存しておいてください。${lastBackupText()}</p>
       ${canShareFiles() ? `<button class="btn primary block" data-act="share">${I.upload}共有して保存（Google Drive など）</button>` : ''}
       <div class="row">
         <button class="btn" data-act="export">${I.download}書き出す</button>
@@ -1216,7 +1224,7 @@ function viewSettings() {
 
     <section class="section">
       <h2>リセット</h2>
-      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの正誤・ギャル先生と計算練習の記録を消します。</p>
+      <p>「学習記録だけ消す」は問題と公式カードを残したまま、正誤・苦手克服・続きから・カードの正誤・計算練習の記録を消します。</p>
       <div class="row">
         <button class="btn danger" data-act="reset-progress">学習記録だけ消す</button>
         <button class="btn danger" data-act="reset-all">すべて消す</button>
@@ -1244,8 +1252,6 @@ function viewSettings() {
     } catch (err) { /* noop */ }
     location.replace(`${location.pathname}?v=${Date.now()}#/`);
   });
-  if (typeof galBindSettings === 'function') galBindSettings();
-  if (/\?gal$/.test(location.hash)) requestAnimationFrame(() => document.getElementById('gal')?.scrollIntoView());
   $('[data-act="import-file"]').addEventListener('change', async (e) => {
     const f = e.target.files[0]; e.target.value = '';
     if (f) importText(await f.text());
@@ -1254,6 +1260,7 @@ function viewSettings() {
   $('[data-act="export"]').addEventListener('click', () => exportBackup(false));
   $('[data-act="share"]')?.addEventListener('click', () => exportBackup(true));
   showUsage();
+  if (typeof driveBindSettings === 'function') driveBindSettings();
   $('[data-act="restore"]').addEventListener('change', async (e) => {
     const f = e.target.files[0]; e.target.value = '';
     if (f) restoreBackup(await f.text());
@@ -1262,7 +1269,6 @@ function viewSettings() {
     if (!confirm('学習記録（正誤・苦手克服・続きから）を消します。ブックマークと問題は残ります。よろしいですか？')) return;
     store.d.progress = {}; store.d.session = null; store.d.lastSession = null;
     store.d.cprog = {}; store.d.csession = null; store.d.clast = null;
-    if (store.d.gal) store.d.gal = { settings: store.d.gal.settings };
     if (store.d.calc) store.d.calc = { templates: store.d.calc.templates };
     store.save(); toast('学習記録を消しました'); viewSettings();
   });
@@ -1298,9 +1304,35 @@ async function importText(text) {
     if (!Array.isArray(data.templates) || !data.templates.length) { toast('計算問題が見つかりませんでした'); return; }
     calcImport(data.templates); return;
   }
+  if (data && data.format === 'denken3-drill/pack-v1') { await importPack(data); return; }
   if (data && data.format === 'denken3-drill/backup-v1') { toast('これはバックアップファイルです。「バックアップ → 読み込む」から読み込んでください'); return; }
   const list = Array.isArray(data) ? data : data && data.questions;
   if (!Array.isArray(list) || !list.length) { toast('問題が見つかりませんでした'); return; }
+  const r = applyQuestions(list);
+  store.touch('questions');
+  if (!(await store.flush())) return;
+  importReport([['問題', '問', r]]);
+  viewSettings();
+}
+
+// まとめパック：問題・計算練習・公式カードを 1 ファイルで取り込む
+async function importPack(data) {
+  const q = Array.isArray(data.questions) && data.questions.length ? applyQuestions(data.questions) : null;
+  const t = Array.isArray(data.templates) && data.templates.length && typeof calcApply === 'function' ? calcApply(data.templates) : null;
+  const c = Array.isArray(data.cards) && data.cards.length ? applyCards(data.cards) : null;
+  if (!q && !t && !c) { toast('パックの中身が空でした'); return false; }
+  if (q) store.touch('questions');
+  if (t) store.touch('calcTemplates');
+  if (c) store.touch('cards');
+  if (!(await store.flush())) return false;
+  store.d.ui.lastPack = { title: data.title || '', createdAt: data.createdAt || '', at: Date.now() };
+  store.save();
+  importReport([['問題', '問', q], ['計算練習', '問', t], ['公式カード', '枚', c]]);
+  viewSettings();
+  return true;
+}
+
+function applyQuestions(list) {
   const errors = [];
   let added = 0; let updated = 0; let bmAdded = 0;
   list.forEach((q, i) => {
@@ -1328,12 +1360,7 @@ async function importText(text) {
     }
     store.d.questions[q.id] = clean;
   });
-  store.touch('questions');
-  if (!(await store.flush())) return;
-  const msg = `取り込みました：新規 ${added}問 ／ 更新 ${updated}問${bmAdded ? ` ／ ブックマーク ${bmAdded}問` : ''}${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
-  if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}${errors.length > 8 ? '\n…' : ''}`);
-  else toast(msg);
-  viewSettings();
+  return { added, updated, errors, bm: bmAdded };
 }
 
 function canShareFiles() {
@@ -1424,7 +1451,7 @@ function render() {
   app().style.paddingBottom = '';
   const r = location.hash.replace(/^#\/?/, '').split('?')[0];
   (routes[r] || viewHome)();
-  if (r !== 'resume' && r !== 'galplay' && r !== 'calcplay') window.scrollTo(0, 0);
+  if (r !== 'resume' && r !== 'calcplay') window.scrollTo(0, 0);
 }
 
 /* 全画面共通のイベント（ブックマーク・科目チップ・インストール） */
@@ -1464,6 +1491,7 @@ window.addEventListener('storage', (e) => { if (e.key === KEY && !store.db) { st
 async function boot() {
   await store.load();
   render();
+  try { localStorage.removeItem('denken3-drill:secret'); } catch (e) { /* 前の版のギャル先生の API キーを消す */ }
   if (store.migrated) toast('保存のしかたを新しくしました（データはそのまま引き継いでいます）');
   // ブラウザが勝手にデータを消さないようにお願いする
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -1482,5 +1510,5 @@ async function boot() {
     });
   }
 }
-// gal.js など、あとに読み込むスクリプトがルートを足し終わってから起動する
+// calc.js など、あとに読み込むスクリプトがルートを足し終わってから起動する
 if (document.readyState === 'complete') boot(); else document.addEventListener('DOMContentLoaded', boot);

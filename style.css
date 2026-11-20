@@ -533,3 +533,14 @@ details summary { cursor: pointer; font-size: 14px; color: var(--accent); margin
 .c-st { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--surface-2); color: var(--ink-3); }
 .c-st.clean { background: var(--ok-soft); color: var(--ok); }
 .c-st.miss { background: var(--slot); color: var(--warn); }
+
+/* ---------- Google Drive ---------- */
+.drive-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.drive-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.drive-f { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.drive-f b { font-size: 14px; overflow-wrap: anywhere; }
+.drive-f span { font-size: 12px; color: var(--ink-3); }
+.drive-f em { font-style: normal; font-weight: 700; color: var(--ok); }
+.drive-list .btn { flex: none; }
+.drive-busy { margin: 12px 0 0; font-size: 14px; color: var(--ink-3); }
+.drive-err { margin: 12px 0 0; font-size: 14px; color: var(--ng); }
