@@ -370,7 +370,7 @@ function calcValidate(t, i) {
   try { calcInstance(t); } catch (e) { return `${at}：${e.message}`; }
   return null;
 }
-function calcImport(list) {
+async function calcImport(list) {
   const C = calcData();
   const errors = []; let added = 0; let updated = 0;
   list.forEach((t, i) => {
@@ -381,7 +381,8 @@ function calcImport(list) {
     if (C.templates[t.id]) updated++; else added++;
     C.templates[t.id] = clean;
   });
-  if (!store.save()) return;
+  store.touch('calcTemplates');
+  if (!(await store.flush())) return;
   const msg = `計算問題を取り込みました：新規 ${added}問 ／ 更新 ${updated}問${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
   if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}${errors.length > 8 ? '\n…' : ''}`);
   else toast(msg);

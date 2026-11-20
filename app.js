@@ -2,10 +2,11 @@
 
 /* =========================================================
    電験三種 短答ドリル
-   データはすべて端末のブラウザ (localStorage) に保存する。
+   データはすべて端末のブラウザ (IndexedDB) に保存する。
+   IndexedDB が使えないときだけ、前と同じ localStorage に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.13.3';
+const APP_VERSION = '1.14.0';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学', '積分'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
@@ -27,19 +28,159 @@ const I = {
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
 };
 
-/* ---------------- storage ---------------- */
+/* ---------------- storage ----------------
+   IndexedDB の 1 つのストア（kv）に、次の 4 つのレコードに分けて保存する。
+     state         … 学習記録・ブックマーク・設定など（小さい。答えるたびに保存）
+     questions     … 問題（大きい。取り込み・リセットのときだけ保存）
+     cards         … 公式カード（同上）
+     calcTemplates … 計算練習のテンプレート（同上）
+   大きいレコードを書き直すときは、変えた側で store.touch('questions') などを呼ぶ。
+   保存はまとめて少し遅らせて行い（store.save）、画面を離れるときに必ず書き出す（store.flush）。 */
+const DB_NAME = 'denken3-drill';
+const DB_STORE = 'kv';
+const BIG_PARTS = ['questions', 'cards', 'calcTemplates'];
+// 画面を閉じる瞬間は IndexedDB の書き込みが間に合わないことがあるので、学習記録だけ localStorage にも控えておく
+const PENDING_KEY = 'denken3-drill:pending';
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) { reject(new Error('no indexedDB')); return; }
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(DB_STORE)) req.result.createObjectStore(DB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('blocked'));
+  });
+}
+function idbReq(r) { return new Promise((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); }); }
+
 const store = {
   d: null,
-  load() {
+  db: null,          // IndexedDB。使えないときは null（localStorage に保存）
+  dirty: new Set(),  // 次の flush で書くレコード
+  timer: null,
+  chain: Promise.resolve(true),
+  migrated: false,   // localStorage から引っ越したばかりか
+  failed: false,
+  async load() {
+    try { this.db = await idbOpen(); } catch (e) { this.db = null; }
     let raw = null;
-    try { raw = JSON.parse(localStorage.getItem(KEY)); } catch (e) { raw = null; }
+    if (this.db) {
+      try { raw = await this.readAll(); } catch (e) { raw = null; }
+      let pend = null;
+      try { pend = JSON.parse(localStorage.getItem(PENDING_KEY)); } catch (e) { pend = null; }
+      if (raw && pend && pend.state) {
+        // 前回、書き込みが終わる前に閉じた：控えておいた学習記録を戻して書き直す
+        const keep = { questions: raw.questions, cards: raw.cards, tpls: raw.calc && raw.calc.templates };
+        raw = Object.assign({}, pend.state, { questions: keep.questions, cards: keep.cards });
+        if (keep.tpls) { raw.calc = Object.assign({}, raw.calc || {}, { templates: keep.tpls }); }
+        this.d = normalize(raw);
+        await this.flush();
+        return;
+      }
+      if (!raw) {
+        // 初めて IndexedDB を使う：localStorage にある前のデータを引っ越す
+        let old = null;
+        try { old = JSON.parse(localStorage.getItem(KEY)); } catch (e) { old = null; }
+        if (old) {
+          this.d = normalize(old);
+          this.touch('all');
+          if (await this.flush()) { try { localStorage.removeItem(KEY); } catch (e) { /* noop */ } this.migrated = true; }
+          return;
+        }
+      }
+    } else {
+      try { raw = JSON.parse(localStorage.getItem(KEY)); } catch (e) { raw = null; }
+    }
     this.d = normalize(raw);
   },
+  async readAll() {
+    const tx = this.db.transaction(DB_STORE, 'readonly');
+    const os = tx.objectStore(DB_STORE);
+    const [state, questions, cards, tpls] = await Promise.all(['state', ...BIG_PARTS].map((k) => idbReq(os.get(k))));
+    if (!state) return null;
+    const d = state;
+    d.questions = questions || {};
+    d.cards = cards || {};
+    if (tpls) { d.calc = d.calc && typeof d.calc === 'object' ? d.calc : {}; d.calc.templates = tpls; }
+    return d;
+  },
+  // 大きいレコードを「書き直し」にする。'all' ですべて
+  touch(part) { (part === 'all' ? BIG_PARTS : [part]).forEach((p) => this.dirty.add(p)); },
+  // 学習記録などの保存。すぐには書かず、少しまとめてから書く
   save() {
-    try { localStorage.setItem(KEY, JSON.stringify(this.d)); return true; }
-    catch (e) { toast('保存できませんでした（端末の空き容量を確認してください）'); return false; }
+    this.dirty.add('state');
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => { this.flush(); }, 150);
+    return true;
+  },
+  // 今たまっている変更をすぐ書く。成功したら true
+  flush() {
+    clearTimeout(this.timer);
+    this.dirty.add('state');
+    const parts = [...this.dirty];
+    this.dirty.clear();
+    const run = () => (this.db ? this.writeIdb(parts) : this.writeLs()).then((ok) => {
+      if (!ok) parts.forEach((p) => this.dirty.add(p));
+      if (ok && this.failed) this.failed = false;
+      if (ok && this.db && !this.dirty.size) { try { localStorage.removeItem(PENDING_KEY); } catch (e) { /* noop */ } }
+      if (ok && this.db && typeof storeChannel !== 'undefined' && storeChannel) storeChannel.postMessage({ saved: Date.now() });
+      return ok;
+    });
+    this.chain = this.chain.then(run, run);
+    return this.chain;
+  },
+  // 閉じる直前：学習記録（小さい部分）だけ localStorage に同期的に控えてから書き出す
+  stash() {
+    if (!this.db) return;
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify({ t: Date.now(), state: this.stateOnly() })); } catch (e) { /* noop */ }
+  },
+  stateOnly() {
+    const d = this.d;
+    const state = Object.assign({}, d);
+    delete state.questions; delete state.cards;
+    if (d.calc) { state.calc = Object.assign({}, d.calc); delete state.calc.templates; }
+    return state;
+  },
+  writeIdb(parts) {
+    return new Promise((resolve) => {
+      let tx;
+      try {
+        tx = this.db.transaction(DB_STORE, 'readwrite');
+        const os = tx.objectStore(DB_STORE);
+        const d = this.d;
+        if (parts.includes('state')) os.put(this.stateOnly(), 'state');
+        if (parts.includes('questions')) os.put(d.questions, 'questions');
+        if (parts.includes('cards')) os.put(d.cards, 'cards');
+        if (parts.includes('calcTemplates')) os.put((d.calc && d.calc.templates) || {}, 'calcTemplates');
+      } catch (e) { this.onFail(e); resolve(false); return; }
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => { this.onFail(tx.error); resolve(false); };
+      tx.onabort = () => { this.onFail(tx.error); resolve(false); };
+    });
+  },
+  writeLs() {
+    try { localStorage.setItem(KEY, JSON.stringify(this.d)); return Promise.resolve(true); }
+    catch (e) { this.onFail(e); return Promise.resolve(false); }
+  },
+  onFail(e) {
+    if (this.failed) return;
+    this.failed = true;
+    toast('保存できませんでした（端末の空き容量を確認してください）');
+    if (e) console.warn('save failed', e);
   },
 };
+// 別のタブで保存されたら読み込み直す
+const storeChannel = 'BroadcastChannel' in window ? new BroadcastChannel('denken3-drill-store') : null;
+if (storeChannel) {
+  storeChannel.onmessage = async () => {
+    if (!store.db || store.dirty.size) return;
+    try { const raw = await store.readAll(); if (raw) { store.d = normalize(raw); render(); } } catch (e) { /* noop */ }
+  };
+}
+window.addEventListener('pagehide', () => { if (store.d) { store.stash(); store.flush(); } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && store.d) { store.stash(); store.flush(); } });
+
 function normalize(raw) {
   const d = raw && typeof raw === 'object' ? raw : {};
   return {
@@ -1001,7 +1142,7 @@ function validateCard(c, i) {
   if (!Number.isInteger(c.answer) || c.answer < 0 || c.answer >= c.choices.length) return `${where}: 正解番号が正しくありません`;
   return null;
 }
-function importCards(list) {
+async function importCards(list) {
   const errors = [];
   let added = 0; let updated = 0;
   list.forEach((c, i) => {
@@ -1025,7 +1166,8 @@ function importCards(list) {
     if (store.d.cards[clean.id]) updated++; else added++;
     store.d.cards[clean.id] = clean;
   });
-  if (!store.save()) return;
+  store.touch('cards');
+  if (!(await store.flush())) return;
   const msg = `公式カードを取り込みました：新規 ${added}枚 ／ 更新 ${updated}枚${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
   if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}`); else toast(msg);
   viewSettings();
@@ -1061,12 +1203,15 @@ function viewSettings() {
     ${typeof galSettingsHTML === 'function' ? galSettingsHTML() : ''}
 
     <section class="section">
-      <h2>バックアップ</h2>
-      <p>問題・学習記録・ブックマークは、この端末のブラウザの中だけに保存されています。ブラウザのデータを消すとすべて失われるので、ときどき書き出しておいてください。（ギャル先生の API キーは書き出しに含まれません）</p>
+      <h2>保存とバックアップ</h2>
+      <p>問題・学習記録・ブックマークは、この端末のブラウザの中に保存されています。<span data-slot="usage">使用量を調べています…</span></p>
+      <p>ブラウザのデータを消すとすべて失われるので、ときどきバックアップを Google Drive などに保存しておいてください。${lastBackupText()}（ギャル先生の API キーは含まれません）</p>
+      ${canShareFiles() ? `<button class="btn primary block" data-act="share">${I.upload}共有して保存（Google Drive など）</button>` : ''}
       <div class="row">
         <button class="btn" data-act="export">${I.download}書き出す</button>
         <label class="btn">${I.upload}読み込む<input type="file" accept=".json,application/json" class="visually-hidden" data-act="restore"></label>
       </div>
+      <p class="fine">読み込むときは、ファイル選択で「Google Drive」（iPhone は「ファイル」→ Google Drive）から選べます。</p>
     </section>
 
     <section class="section">
@@ -1106,7 +1251,9 @@ function viewSettings() {
     if (f) importText(await f.text());
   });
   $('[data-act="import-paste"]').addEventListener('click', () => importText($('[data-act="import-text"]').value));
-  $('[data-act="export"]').addEventListener('click', exportBackup);
+  $('[data-act="export"]').addEventListener('click', () => exportBackup(false));
+  $('[data-act="share"]')?.addEventListener('click', () => exportBackup(true));
+  showUsage();
   $('[data-act="restore"]').addEventListener('change', async (e) => {
     const f = e.target.files[0]; e.target.value = '';
     if (f) restoreBackup(await f.text());
@@ -1121,7 +1268,7 @@ function viewSettings() {
   });
   $('[data-act="reset-all"]').addEventListener('click', () => {
     if (!confirm('問題・学習記録・ブックマークをすべて消します。元に戻せません。よろしいですか？')) return;
-    store.d = normalize(null); store.save(); toast('すべてのデータを消しました'); viewSettings();
+    store.d = normalize(null); store.touch('all'); store.flush(); toast('すべてのデータを消しました'); viewSettings();
   });
 }
 
@@ -1139,7 +1286,7 @@ function validateQuestion(q, i) {
   return null;
 }
 
-function importText(text) {
+async function importText(text) {
   let data;
   try { data = JSON.parse(String(text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); }
   catch (e) { toast('ファイルを読み取れませんでした（JSON形式ではありません）'); return; }
@@ -1181,28 +1328,68 @@ function importText(text) {
     }
     store.d.questions[q.id] = clean;
   });
-  if (!store.save()) return;
+  store.touch('questions');
+  if (!(await store.flush())) return;
   const msg = `取り込みました：新規 ${added}問 ／ 更新 ${updated}問${bmAdded ? ` ／ ブックマーク ${bmAdded}問` : ''}${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
   if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}${errors.length > 8 ? '\n…' : ''}`);
   else toast(msg);
   viewSettings();
 }
 
-function exportBackup() {
+function canShareFiles() {
+  try { return !!(navigator.canShare && navigator.canShare({ files: [new File(['{}'], 'x.json', { type: 'application/json' })] })); }
+  catch (e) { return false; }
+}
+function lastBackupText() {
+  const t = store.d.ui.lastBackup;
+  if (!t) return 'まだバックアップしていません。';
+  const days = Math.floor((Date.now() - t) / 86400000);
+  return `最後のバックアップ：${days <= 0 ? '今日' : `${days}日前`}。`;
+}
+function fmtBytes(n) { return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; }
+async function showUsage() {
+  const el = $('[data-slot="usage"]');
+  if (!el) return;
+  if (!store.db) { el.textContent = '（この端末では古い保存方法 localStorage を使っています。上限は約 5 MB です）'; return; }
+  let txt = '';
+  try {
+    const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+    const persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : false;
+    if (est && est.usage != null) txt = `使用量 ${fmtBytes(est.usage)}${est.quota ? `（使える量の目安 ${fmtBytes(est.quota)}）` : ''}。`;
+    txt += persisted ? 'ブラウザが自動で消さないよう保護されています。' : '';
+  } catch (e) { /* noop */ }
+  el.textContent = txt;
+}
+
+async function exportBackup(share) {
+  await store.flush();
   const payload = { format: 'denken3-drill/backup-v1', app: APP_VERSION, exportedAt: new Date().toISOString(), data: store.d };
-  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
   const d = new Date();
   const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const name = `denken3-backup-${stamp}.json`;
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  const done = () => { store.d.ui.lastBackup = Date.now(); store.save(); viewSettings(); };
+  if (share) {
+    const file = new File([blob], name, { type: 'application/json' });
+    try {
+      await navigator.share({ files: [file], title: '電験三種ドリルのバックアップ' });
+      toast('バックアップを共有しました'); done();
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // 共有シートを閉じただけ
+      toast('共有できませんでした。「書き出す」を使ってください');
+    }
+    return;
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `denken3-backup-${stamp}.json`;
+  a.download = name;
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  toast('バックアップを書き出しました');
+  toast('バックアップを書き出しました'); done();
 }
 
-function restoreBackup(text) {
+async function restoreBackup(text) {
   let data;
   try { data = JSON.parse(text); } catch (e) { toast('ファイルを読み取れませんでした'); return; }
   if (!data || data.format !== 'denken3-drill/backup-v1' || !data.data) {
@@ -1212,7 +1399,8 @@ function restoreBackup(text) {
   const n = Object.keys(data.data.questions || {}).length;
   if (!confirm(`バックアップ（${n}問）で今のデータを置き換えます。よろしいですか？`)) return;
   store.d = normalize(data.data);
-  store.save();
+  store.touch('all');
+  if (!(await store.flush())) return;
   toast('バックアップを読み込みました');
   viewSettings();
 }
@@ -1271,11 +1459,13 @@ window.addEventListener('beforeinstallprompt', (e) => {
   if (!location.hash || location.hash === '#/') viewHome();
 });
 window.addEventListener('hashchange', render);
-window.addEventListener('storage', (e) => { if (e.key === KEY) { store.load(); render(); } });
+window.addEventListener('storage', (e) => { if (e.key === KEY && !store.db) { store.load().then(render); } });
 
-function boot() {
-  store.load();
+async function boot() {
+  await store.load();
   render();
+  if (store.migrated) toast('保存のしかたを新しくしました（データはそのまま引き継いでいます）');
+  // ブラウザが勝手にデータを消さないようにお願いする
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').then((reg) => {
