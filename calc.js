@@ -371,6 +371,13 @@ function calcValidate(t, i) {
   return null;
 }
 async function calcImport(list) {
+  const r = calcApply(list);
+  store.touch('calcTemplates');
+  if (!(await store.flush())) return;
+  importReport([['計算練習', '問', r]]);
+  viewSettings();
+}
+function calcApply(list) {
   const C = calcData();
   const errors = []; let added = 0; let updated = 0;
   list.forEach((t, i) => {
@@ -381,12 +388,7 @@ async function calcImport(list) {
     if (C.templates[t.id]) updated++; else added++;
     C.templates[t.id] = clean;
   });
-  store.touch('calcTemplates');
-  if (!(await store.flush())) return;
-  const msg = `計算問題を取り込みました：新規 ${added}問 ／ 更新 ${updated}問${errors.length ? ` ／ エラー ${errors.length}件` : ''}`;
-  if (errors.length) alert(`${msg}\n\n${errors.slice(0, 8).join('\n')}${errors.length > 8 ? '\n…' : ''}`);
-  else toast(msg);
-  viewSettings();
+  return { added, updated, errors };
 }
 
 /* ---------------- セッション ---------------- */
