@@ -8,7 +8,7 @@
    app.js のあとに読み込み、app.js のヘルパー（store・toast・importText など）を使う。
    ========================================================= */
 
-const DRIVE_CLIENT_ID = '478536741025-l7m05ehcfo7cha0ivi1e867jbbpdrgct.apps.googleusercontent.com';
+const DRIVE_CLIENT_ID = '326647858563-jk85r82deota66t7sft91rfb370ncc2r.apps.googleusercontent.com';
 // 見る：フォルダの中のファイルを読む／書く：このアプリが作るバックアップだけ
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file';
 const DRIVE_FOLDER = 'denken3-drill';
