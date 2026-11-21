@@ -6,7 +6,7 @@
    IndexedDB が使えないときだけ、前と同じ localStorage に保存する。
    ========================================================= */
 
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.15.1';
 const KEY = 'denken3-drill:v1';
 const SUBJECTS = ['理論', '電力', '機械', '法規', '物理', '数学', '積分'];
 const KANA = ['ア', 'イ', 'ウ', 'エ', 'オ', 'カ'];
