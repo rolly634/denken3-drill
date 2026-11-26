@@ -11,8 +11,8 @@ Android の Chrome で開き、メニューの「ホーム画面に追加」で�
 - 問題は JSON ファイルとして端末に取り込みます（設定 → 問題を取り込む）。
 - 問題・学習記録・ブックマークはすべて端末のブラウザ（IndexedDB）に保存されます。容量の上限は端末の空きに応じて数百 MB 以上あります。
   前の版（localStorage）のデータは、新しい版を初めて開いたときに自動で引っ越します。
-- ブラウザのデータを消すと失われるので、設定 → 保存とバックアップ → 共有して保存 で Google Drive などに保存しておいてください。
-  読み込むときは「読み込む」のファイル選択で Google Drive のファイルを選べます。
+- 問題は Google Drive の `denken3-drill` フォルダに置いたまとめパックから、設定 → Google Drive で取り込めます。
+- ブラウザのデータを消すと失われるので、設定 → Google Drive →「Drive に保存」でときどきバックアップしてください。
 
 ## 画面
 
@@ -45,61 +45,6 @@ Android の Chrome で開き、メニューの「ホーム画面に追加」で�
 - 終わったら解説（値入り）と、「Claude に聞く文をコピー」（問題と自分の途中式をまとめた質問文。Claude アプリに貼れば Pro プランの範囲で質問できる）。
 - 記録はほかのモードとは別に持つ。一覧の「おまかせ」は未挑戦→前回ミス→その他の順に出す。
 
-### 計算問題ファイル（`denken3-drill/calc-v1`）
-
-```json
-{
-  "format": "denken3-drill/calc-v1",
-  "templates": [
-    {
-      "id": "c-pf-1",
-      "subject": "理論",
-      "unit": "電力と力率",
-      "title": "力率を 1 にするコンデンサ",
-      "vars": { "P": [20, 30, 40], "pf": [0.6, 0.8] },
-      "where": "P >= 20",
-      "text": "有効電力 {{P}} kW、力率 {{pf}}（遅れ）の負荷に…",
-      "steps": [
-        { "name": "S", "label": "皮相電力 $S$", "unit": "kV·A", "expr": "P/pf", "hints": ["…", "…", "…"] },
-        { "name": "Q", "label": "無効電力 $Q$", "unit": "kvar", "expr": "sqrt(S^2-P^2)" },
-        { "label": "電流は電圧より", "choices": ["遅れる", "進む"], "answer": 0 }
-      ],
-      "explanation": "$S = {{P}}/{{pf}} = {{S}}$ kV·A …"
-    }
-  ]
-}
-```
-
-| キー | 内容 |
-|---|---|
-| `vars` | 変数ごとに候補の配列、または `{ "min", "max", "step" }`。開くたびにランダムに選ぶ |
-| `let` | 任意。変数から計算する補助の値（`{ "名前": "式" }`） |
-| `where` | 任意。数値の条件（式、または式の配列）。満たすまで選び直す |
-| `text` / `label` / `hints` / `explanation` / `figures[].svg` | `{{名前}}` が値（有効数字 3〜4 桁）に、`{{=式}}` が計算結果に置きかわる。数式は KaTeX |
-| `steps[].expr` | その段の正解の式。`name` を付けると、あとの段や解説で使える |
-| `steps[].choices` + `answer` | 選択式の段（`answer` は 0 始まり） |
-| `steps[].unit` / `tol` | 単位の表示 ／ 許す相対誤差（既定 0.01） |
-| `figuresFrom` | 任意。取り込み済みの問題の id（または配列）。その問題の図を表示する（同じ図を二重に保存しないため） |
-
-式で使えるもの：`+ - * / ^ ( )`、`sqrt abs sin cos tan asin acos atan`（角度は度）、`log`（常用）、`ln`、`exp`、`round`、`min`、`max`、`pi`、比較 `< <= > >= == !=` と `&& ||`（`where` 用）。取り込むときに、すべての段が計算できるか確認する。
-
-## Google Drive
-
-設定 → Google Drive から使う。Google でログインすると、Drive の `denken3-drill` フォルダにある `.json` を一覧して取り込める（まとめパック・問題ファイル・バックアップ）。「Drive にバックアップ」で同じフォルダにバックアップを保存する。
-
-- ログインは Google Identity Services のトークン（約 1 時間で切れる。保存しない）。
-- 権限：`drive.readonly`（フォルダのファイルを読む）と `drive.file`（このアプリが作るバックアップを書く）。
-- OAuth クライアント ID は `drive.js` の `DRIVE_CLIENT_ID`。Google Cloud の OAuth 同意画面は「テスト」のまま、テストユーザーに自分の Google アカウントを入れて使う。
-
-### まとめパック（`denken3-drill/pack-v1`）
-
-問題・計算練習・公式カードを 1 ファイルにまとめた形式。取り込み 1 回で全部入る（同じ id は上書き）。
-
-```json
-{ "format": "denken3-drill/pack-v1", "title": "…", "createdAt": "2026-11-21",
-  "questions": [ …問題… ], "templates": [ …計算練習… ], "cards": [ …公式カード… ] }
-```
-
 ## 公式カード
 
 トップの「公式カード」から使う。表（状況・条件）を見て4つの式から選び、選ぶと裏（公式名・式・各文字の意味と単位・適用条件）が開く。
@@ -108,92 +53,18 @@ Android の Chrome で開き、メニューの「ホーム画面に追加」で�
 - 「シャッフル」は学習済みのカードを区切りなくランダムに出し続ける（一巡したら並べ替えて続ける）。科目チップで範囲を絞れる。
 - 記録はカードごとの正誤（回数・直近の○×）だけ。演習の正答率・苦手克服とは別。バックアップには含まれる。
 
-### カードファイルの形式（`denken3-drill/cards-v1`）
+## 文書
 
-```json
-{"format":"denken3-drill/cards-v1","title":"公式カード 物理","cards":[
- {"id":"card-butsuri-010","subject":"物理","unit":"力学","order":10,
-  "front":"質量 $m$、速さ $v$ の物体の運動エネルギー $K$ は？",
-  "choices":["$K = \\dfrac{1}{2}mv^2$","$K = mv^2$","$K = \\dfrac{1}{2}mv$","$K = \\dfrac{1}{2}m^2v$"],"answer":0,
-  "name":"運動エネルギー","formula":"$K = \\dfrac{1}{2}mv^2$",
-  "vars":[["K","運動エネルギー","J"],["m","質量","kg"],["v","速さ","m/s"]],
-  "conditions":"並進運動の運動エネルギー（回転の分は含まない）。",
-  "note":"補足（任意）","denken":true}]}
-```
-
-`vars` は［記号（LaTeX、$ なし）, 意味, 単位］。積分練習カードなどは `num`（カード番号）、`method`（[{n, name}] 手法番号と名前）、`hint`（ワンポイント。`[[3]]` は手法番号の枠表示）、`ref`／`refItem`（本の参照と見出し・ページ）、`advanced`（やや高度）を持てる。`denken: true` は「電験で使う」印。取り込みは問題ファイルと同じ「問題を取り込む」から。
-
-## 問題ファイルの形式（`denken3-drill/v1`）
-
-```json
-{
-  "format": "denken3-drill/v1",
-  "title": "理論 □1〜□8",
-  "questions": [
-    {
-      "id": "riron-008",
-      "subject": "理論",
-      "unit": "回路の法則・定理",
-      "source": "理論 □8",
-      "order": 8,
-      "text": "…抵抗 $R$[Ω] に流れる{{1}}を求めたい時に便利である。…",
-      "blanks": [
-        { "label": "1", "choices": ["電流", "電圧", "電力", "電荷"], "answer": 0 },
-        { "label": "電流", "prompt": "$R$[Ω] に流れる電流 $I$[A] は？", "choices": ["$I = \\dfrac{E_0}{R_0 + R}$", "…", "…", "…"], "answer": 0 }
-      ],
-      "explanation": "解説文。改行は \\n、段落は \\n\\n。"
-    }
-  ]
-}
-```
-
-| フィールド | 説明 |
+| 文書 | 内容 |
 |---|---|
-| `id` | 問題を一意に表す ID。同じ ID を取り込むと上書き（学習記録は残る） |
-| `subject` | 科目：`理論` `電力` `機械` `法規` `物理` `数学`（この順に並ぶ） |
-| `unit` | 単元（一覧の見出しになる） |
-| `source` | 出典の表示名（教材の問題番号など） |
-| `order` | 科目内の並び順 |
-| `text` | 問題文。数式は `$...$`（KaTeX）。`{{1}}` で文中に空欄を置く |
-| `blanks` | 解答欄の配列。1 問 1 解答なら要素 1 つ |
-| `blanks[].label` | 文中の `{{…}}` と対応するラベル |
-| `blanks[].prompt` | 文中に空欄がない設問の問いかけ（任意） |
-| `blanks[].choices` | 選択肢（4 つ）。表示時に並びはシャッフルされる |
-| `blanks[].answer` | 正解の選択肢の位置（0 始まり） |
-| `explanation` | 解説 |
-| `bookmark` | 任意。`true` にすると、その問題を初めて取り込んだときにブックマークする（あとで外したブックマークは、取り込み直しても戻らない） |
-
-### 図（SVG）
-
-問題文・解説・選択肢に図を入れられます。図は SVG 文字列で書きます。
-
-```json
-{
-  "figures": [{ "svg": "<svg viewBox=\"0 0 340 232\" ...>…</svg>", "caption": "任意の説明（$...$ 可）" }],
-  "explanationFigures": [{ "svg": "<svg …>…</svg>" }],
-  "blanks": [{ "choices": ["<svg …>…</svg>", "…", "…", "…"], "answer": 0 }]
-}
-```
-
-- `figures` は問題文の下、`explanationFigures` は解説の下に表示。選択肢の文字列が `<svg` で始まれば選択肢も図として表示。
-- タップで全画面に拡大。
-- `viewBox` を必ず指定（幅・高さは画面に合わせて自動）。
-- ダークモードに追従させるため、色は直接指定せず次の決まりで描く：
-
-| 用途 | 書き方 |
-|---|---|
-| 線・文字 | `stroke="currentColor"`（ルートに指定）／文字は自動で同色 |
-| 背景色で塗る（抵抗の箱など） | `class="bg"` |
-| 淡い塗り（鉄心など） | `class="soft"` |
-| 強調色（巻線など） | 線は `class="accent"`、塗りは `class="accent-fill"` |
-| 線色で塗る（矢じり・接続点） | `class="ink-fill"` |
-| 変数（斜体） | `<text class="v">` |
-| 日本語 | `<text class="ja">` |
-
-- `<script>`・`on…` 属性・外部 URL・`<style>` は取り込み時に除去されます。矢印は `<marker>` ではなく多角形で描いてください（ページ内で ID が衝突するため）。
+| [docs/要件定義書.md](docs/要件定義書.md) | 何を作るか・作らないか、データの流れ、決まりごと |
+| [docs/データ形式.md](docs/データ形式.md) | 取り込むファイルの形式（パック・バックアップ・問題・計算練習・公式カード） |
+| [tools/README.md](tools/README.md) | 過去問 PDF から問題を作る手順 |
 
 ## 開発メモ
 
 - 依存なしの素の HTML / CSS / JS。数式表示に KaTeX（`vendor/katex`）を同梱。
 - 計算練習は `calc.js`、Google Drive 連携は `drive.js`（どちらも `app.js` のあとに読み込み、`app.js` のヘルパーとルーターを使う）。
-- `sw.js` の `VERSION` を上げると、端末側のキャッシュが更新される。
+- `app.js` の `APP_VERSION` と `sw.js` の `VERSION` を一緒に上げると、端末側のキャッシュが更新される。
+- テスト：`pip install playwright && python3 -m playwright install chromium` のあと `python3 tests/run.py`。データは `tests/fixtures.py` の作りものだけを使う。
+- **過去問のデータ（問題文・解答・図）はこのリポジトリに入れない。** 作業フォルダはリポジトリの外に置く（`tools/README.md`）。
