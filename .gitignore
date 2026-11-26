@@ -1,0 +1,14 @@
+# 過去問のデータはこのリポジトリに入れない（tools/README.md）
+*.pdf
+build_*.py
+out/
+pack/
+_pages/
+kakomon-work/
+denken3-pack*.json
+denken3-backup*.json
+*_理論_問題.json
+*_理論_途中式.json
+
+__pycache__/
+*.pyc
